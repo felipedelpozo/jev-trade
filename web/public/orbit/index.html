@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Jev Orbit · Canvas Live</title>
+  <link rel="stylesheet" href="/orbit/style.css">
+  <link rel="stylesheet" href="/orbit/slot.css">
+  <style>@font-face{font-family:"Lilita One";src:url("/orbit/assets/lilita-one.ttf") format("truetype");font-display:swap}</style>
+</head>
+<body>
+  <main class="workspace">
+    <section class="stage" aria-label="Vista vertical de Jev Orbit">
+      <canvas id="orbit" width="1080" height="1920" role="img" aria-label="Máquina Jev Orbit: cargando imágenes"></canvas>
+      <div id="cycle-progress" class="sr-only" role="progressbar" aria-label="Tiempo hasta la siguiente consulta" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"></div>
+      <div id="loading" role="status">Preparando Jev Orbit…</div>
+      <button id="quick-audio" class="quick-audio" type="button" aria-pressed="false">Activar audio</button>
+      <button id="leave-broadcast" class="leave-broadcast" type="button">Volver al laboratorio</button>
+    </section>
+    <aside class="controls" aria-labelledby="control-title">
+      <header><span class="eyebrow">CANVAS / 1080 × 1920</span><h1 id="control-title">Jev Orbit</h1><p>Laboratorio de emisión</p></header>
+      <div class="connection"><span id="connection-dot" class="dot"></span><span id="connection" role="status">Preparando la vista</span></div>
+      <fieldset class="mode-switch"><legend>Fuente de las jugadas</legend><button id="live-mode" type="button" aria-pressed="true">En directo</button><button id="replay-mode" type="button" aria-pressed="false">Repetición</button></fieldset>
+      <label class="scenario-label" for="scenario">Probar la máquina</label>
+      <select id="scenario"><option value="next">Consulta guardada</option><option value="open">Apertura guardada</option><option value="close">Cierre con pérdida guardado</option><option value="win">Cierre con ganancia guardado</option><option value="effect">Efecto ganador (prueba visual)</option><option value="loss-effect">Efecto de pérdida (prueba visual)</option></select>
+      <button id="spin" class="primary" type="button" disabled>Probar jugada</button>
+      <p class="hint">Cada consulta hace girar. Solo un cierre con beneficio neto activa un premio. Las pruebas no consultan a Jev ni envían órdenes.</p>
+      <div class="options"><label><input id="motion" type="checkbox" checked> Animaciones y fondo</label><label><input id="safe-zones" type="checkbox"> Ver zonas de TikTok</label></div>
+      <section class="audio-controls" aria-labelledby="audio-title">
+        <h2 id="audio-title">Ambiente de casino</h2>
+        <button id="audio-toggle" type="button" aria-pressed="false">Activar audio</button>
+        <label for="music-volume">Música <output id="music-volume-value" for="music-volume">16%</output></label>
+        <input id="music-volume" type="range" min="0" max="100" value="16">
+        <label for="effects-volume">Casino y mascota <output id="effects-volume-value" for="effects-volume">60%</output></label>
+        <input id="effects-volume" type="range" min="0" max="100" value="60">
+        <p id="audio-status" class="audio-status" role="status">Activa el audio para escuchar la música y las reacciones.</p>
+        <a href="/orbit/assets/audio/LICENSE.txt" target="_blank" rel="noopener">Música y sonidos originales · CC0</a>
+      </section>
+      <dl class="telemetry"><div><dt>Última lectura</dt><dd id="last-read">—</dd></div><div><dt>Consulta acumulada</dt><dd id="request-count">—</dd></div><div><dt>Coste de IA</dt><dd id="ai-cost">—</dd></div><div><dt>Estado de la cuenta</dt><dd id="account-mode">—</dd></div></dl>
+      <div class="secondary"><button id="broadcast" type="button">Modo emisión</button><button id="capture" type="button" disabled>Guardar PNG</button></div>
+      <p id="detail" class="detail">La vista lee el bot existente. La animación no modifica sus decisiones.</p>
+      <p class="keys">Espacio: tirada guardada · M: audio · Esc: salir de emisión</p>
+      <p id="accessible-state" class="sr-only" aria-live="polite"></p>
+    </aside>
+  </main>
+  <script type="module" src="/orbit/app.js"></script>
+</body>
+</html>

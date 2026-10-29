@@ -8,7 +8,7 @@ services:
       HL_TESTNET: "true"
       DRY_RUN: "true"
       MODEL: mock
-      TICK_MS: "60000"
+      TICK_MS: "30000"
       PRICE_MS: "200"
       QUOTE_USD: "40"
       PORT: "3000"

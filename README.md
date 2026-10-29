@@ -4,7 +4,7 @@
 
 This fork of [aowang-ai/jev-trade](https://github.com/aowang-ai/jev-trade) keeps
 Jev's open/close/hold decisions and adds a durable simulated account. Our deployment
-uses BTC public mainnet data, Jev through Gateway once per minute, `DRY_RUN=true`,
+uses BTC public mainnet data, Jev through Gateway once every 30 seconds, `DRY_RUN=true`,
 and no trading wallet. The original project's live-trading documentation follows below.
 
 - Each coin has its own SQLite account: $200 starting equity, $100 maximum position
@@ -31,6 +31,13 @@ and no trading wallet. The original project's live-trading documentation follows
 - Local audit records include the exact market-facing request, question version,
   validated raw answers, usage, orders and fills. They are not exposed through the
   public API. No code was copied from projects with undeclared reuse licenses.
+
+### Jev Orbit broadcast view
+
+Open `/orbit/?broadcast=1` for the read-only 1080×1920 canvas broadcast. Activate
+audio once through the browser/OBS interaction window. `/orbit/` includes operator
+controls and replay from the current bot history. Original audio is CC0; font
+licensing is included with the runtime assets.
 
 ### Jev consumption balance
 

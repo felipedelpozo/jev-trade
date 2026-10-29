@@ -15,7 +15,8 @@ No result or schedule guarantees profitability.
   A budget pause cancels quotes and flattens simulated exposure at a fresh book;
   the next UTC day can resume. Billing can arrive late, and estimates or an
   unexpectedly expensive request mean this is not an invoice guarantee.
-- Never increase inference frequency above one request per minute in total.
+- Never increase inference frequency above one request per 30 seconds in total.
+  The owner explicitly authorized this cadence on 2026-10-29; keep the $0.60 daily cap.
   Experiments must use that existing request stream, not extra paid evaluations.
   Slower cadence is allowed as an explicitly recorded experiment.
 - Never enable live orders, change wallet/credential access, reload credits, buy
@@ -36,7 +37,7 @@ No result or schedule guarantees profitability.
    Keep all previous observations. Distinguish restarts, strategy versions and
    experiment windows. The HTTP history is limited to 1,000 events per sleeve;
    preserve useful observations before they disappear. It cannot prove a week of
-   performance at a one-minute cadence on its own.
+   performance at the configured cadence on its own.
 4. Choose one bounded hypothesis, or explicitly decide that no change is justified.
    Prefer concrete defects, input-quality corrections, lower cost and execution
    realism before adding models or strategy complexity. Record the evidence,
