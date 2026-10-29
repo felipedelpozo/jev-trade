@@ -7,6 +7,7 @@ export type Intent = "open" | "close" | "hold";
 
 export interface Book {
   block: number;
+  ts?: number;
   bid: number;
   ask: number;
   mid: number;
@@ -111,6 +112,20 @@ export interface Totals {
   pnlPct: number;
 }
 
+export interface PaperSummary {
+  initialUsd: number;
+  equityUsd: number;
+  availableUsd: number;
+  feesUsd: number;
+  fundingUsd: number;
+  modelUsd: number;
+  drawdownUsd: number;
+  maxPositionUsd: number;
+  maxLossUsd: number;
+  halted: boolean;
+  modelCostEstimated: boolean;
+}
+
 export interface BlockEvent {
   coin: string;
   block: number;
@@ -128,6 +143,8 @@ export interface BlockEvent {
   /** Hyperliquid account equity for this sleeve wallet. */
   accountValue?: number | null;
   withdrawable?: number | null;
+  paper?: PaperSummary;
+  riskReason?: string | null;
 }
 
 export interface SleeveMeta {
@@ -135,6 +152,7 @@ export interface SleeveMeta {
   pair: string;
   label: string;
   wallet: string | null;
+  dryRun?: boolean;
 }
 
 export interface Meta {
@@ -149,6 +167,7 @@ export interface Meta {
   explorerTx: string;
   tickMs: number;
   sleeves: SleeveMeta[];
+  revision?: string;
 }
 
 export interface Timing {

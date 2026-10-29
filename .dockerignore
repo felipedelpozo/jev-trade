@@ -1,7 +1,10 @@
+.git
+.env
+.wallets.json
 node_modules
-web
+web/node_modules
+web/.next
 test
 docs
 data
-.env
-.git
+*.log

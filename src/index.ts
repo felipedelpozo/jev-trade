@@ -1,6 +1,9 @@
 import { config } from "./config";
 import { Feed } from "./feed";
 import { Market } from "./market";
+import { mkdirSync } from "node:fs";
+import { join } from "node:path";
+import { PaperAccount } from "./paper";
 import { createModel } from "./model";
 import { loadSleeves } from "./sleeves";
 import { startServer, type SleeveView } from "./server";
@@ -24,12 +27,28 @@ const meta: Meta = {
   explorerTx: config.explorerTx,
   tickMs: config.tickMs,
   sleeves: [],
+  revision: process.env.APP_REVISION ?? "development",
 };
 
 let server: ReturnType<typeof startServer> | undefined;
 const starters: Array<() => void> = [];
+const accounts: PaperAccount[] = [];
+const traders: Trader[] = [];
+const inFlight = new Set<Promise<void>>();
+let shuttingDown = false;
 
 for (const spec of specs) {
+  const model = createModel();
+  let paper: PaperAccount | undefined;
+  if (config.dryRun || !spec.privateKey) {
+    mkdirSync(config.paperDir, { recursive: true, mode: 0o700 });
+    paper = new PaperAccount(join(config.paperDir, `${encodeURIComponent(spec.coin)}.sqlite`), spec.coin, {
+      initialUsd: config.bankrollUsd, maxPositionUsd: config.paperMaxPositionUsd,
+      maxLossUsd: config.paperMaxLossUsd, maxLeverage: config.paperMaxLeverage,
+      makerFeeBps: config.paperMakerFeeBps, takerFeeBps: config.paperTakerFeeBps,
+    });
+    accounts.push(paper);
+  }
   let lastErr: unknown;
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
@@ -48,12 +67,16 @@ for (const spec of specs) {
       await market.init();
       const trader = new Trader(
         market,
-        createModel(),
+        model,
         onEvent(spec.coin),
         onFill(spec.coin),
         onQuote(spec.coin),
+        paper,
       );
+      feed.tick = trader.lastBlock;
+      feed.trades.setTick(feed.tick);
       trader.attachTradeFeed(feed.trades);
+      traders.push(trader);
       market.onVenueFill = (p) => {
         server?.broadcastFill(spec.coin, 0, {
           side: p.side,
@@ -66,14 +89,22 @@ for (const spec of specs) {
         }, p.ts);
       };
       views.push({ coin: spec.coin, history: () => trader.history, tape: () => trader.tape });
-      meta.sleeves.push({ coin: spec.coin, pair: spec.pair, label: spec.label, wallet: market.address });
+      meta.sleeves.push({ coin: spec.coin, pair: spec.pair, label: spec.label, wallet: market.address, dryRun: !market.wallet });
       if (spec === first) {
         meta.wallet = market.address;
         meta.coin = spec.coin;
         meta.pair = spec.pair;
         meta.market = spec.pair;
       }
-      starters.push(() => feed.start((tick) => trader.onBlock(tick)));
+      starters.push(() => feed.start((tick) => {
+        if (shuttingDown) return;
+        const task = trader.onBlock(tick);
+        inFlight.add(task);
+        task.then(() => inFlight.delete(task), (error) => {
+          console.error("Fatal account error:", (error as Error).message);
+          process.exit(1);
+        });
+      }));
       console.log(`sleeve ${spec.label} ${spec.pair} ${config.dryRun || !spec.privateKey ? "DRY RUN" : market.address}`);
       lastErr = null;
       break;
@@ -89,6 +120,16 @@ if (!views.length) throw new Error("no sleeves started");
 
 server = startServer(meta, views);
 for (const start of starters) start();
+
+for (const signal of ["SIGTERM", "SIGINT"] as const) process.on(signal, async () => {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  setTimeout(() => process.exit(1), 10000).unref();
+  await Promise.all(inFlight);
+  await Promise.all(traders.map((trader) => trader.settled()));
+  for (const account of accounts) account.close();
+  process.exit(0);
+});
 
 console.log(`jev-trade ${meta.sleeves.map((s) => s.label).join(" ")} model=${meta.model}${config.model === "jev" ? ` ${config.jevProvider}` : ""} tick ${config.tickMs}ms price ${config.priceMs}ms quote $${config.quoteUsd} :${config.port}`);
 

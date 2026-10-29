@@ -1,6 +1,6 @@
 import { experimental_evaluate as evaluate } from "ai";
 import { TypeSafeClient } from "@typesafe-ai/sdk";
-import { assertJevCredentials, config } from "./config";
+import { assertJevCredentials, config, type JevProvider } from "./config";
 import { leverageRungs, liveIntent, parseLeverage, quoteAction, type Bias, type Intent } from "./plan";
 import type { Action, Side } from "./types";
 
@@ -75,6 +75,10 @@ export interface ModelDecision {
   upIn10: number;
   latencyMs: number;
   inputTokens: number;
+  outputTokens?: number;
+  modelCostUsd?: number;
+  modelCostSource?: string;
+  audit?: JevAudit;
 }
 
 export interface Model {
@@ -116,8 +120,23 @@ export function marketFacing(state: TradeState) {
   };
 }
 
+export type MarketFacingState = ReturnType<typeof marketFacing>;
+
+interface JevChoiceQuestion {
+  type: "choice";
+  instructions: { question: string; goal: string; timing: string; inputs: string };
+  criteria: Record<string, string>;
+}
+
+export interface JevQuestionSet {
+  [key: string]: JevChoiceQuestion;
+  bias: JevChoiceQuestion;
+  intent: JevChoiceQuestion;
+  leverage: JevChoiceQuestion;
+}
+
 /** Labels and live fields only. No advice about when to pick an action. */
-export function jevQuestions(state: TradeState) {
+export function jevQuestions(state: TradeState): JevQuestionSet {
   const asset = state.coin;
   const pos = state.position;
   const stance = pos.side === "flat"
@@ -131,7 +150,7 @@ export function jevQuestions(state: TradeState) {
   }
   const ctx = `${asset} ${state.market}. position has side/size/entry. indicators are 1m sma/ema/rsi/vol. asset is mark/oracle/funding/oi. trades and book are the tape.`;
   const bias = {
-    type: "choice",
+    type: "choice" as const,
     instructions: {
       question: `long or short ${asset}?`,
       goal: `${state.market}`,
@@ -144,7 +163,7 @@ export function jevQuestions(state: TradeState) {
     },
   };
   const leverage = {
-    type: "choice",
+    type: "choice" as const,
     instructions: {
       question: `cross leverage for ${asset}?`,
       goal: `current ${levNow}. max ${state.maxLeverage}x.`,
@@ -157,7 +176,7 @@ export function jevQuestions(state: TradeState) {
     return {
       bias,
       intent: {
-        type: "choice",
+        type: "choice" as const,
         instructions: {
           question: `open or hold ${asset}?`,
           goal: `position=${stance}.`,
@@ -175,7 +194,7 @@ export function jevQuestions(state: TradeState) {
   return {
     bias,
     intent: {
-      type: "choice",
+      type: "choice" as const,
       instructions: {
         question: `open, close, or hold ${asset}?`,
         goal: `position=${stance}.`,
@@ -269,8 +288,146 @@ function choiceProbs(answer: ChoiceAnswer | undefined, keys: readonly string[]):
   return out;
 }
 
-type ChoiceAnswer = { choice?: string; probabilities?: Record<string, number> };
-type JevAnswers = { bias?: ChoiceAnswer; intent?: ChoiceAnswer; leverage?: ChoiceAnswer };
+export interface ChoiceAnswer {
+  type?: "choice";
+  choice?: string;
+  confidence?: number;
+  probabilities?: Record<string, number>;
+}
+
+export interface JevAnswers {
+  bias?: ChoiceAnswer;
+  intent?: ChoiceAnswer;
+  leverage?: ChoiceAnswer;
+}
+
+export interface JevUsage {
+  inputTokens?: number;
+  outputTokens?: number;
+}
+
+export const JEV_PROMPT_VERSION = "jev-questions-v1";
+
+export interface JevAudit {
+  provider: JevProvider;
+  modelId: string;
+  promptVersion: string;
+  state: MarketFacingState;
+  questions: JevQuestionSet;
+  rawAnswers: JevAnswers;
+  usage: JevUsage;
+  modelCostUsd?: number;
+  modelCostSource?: string;
+}
+
+const PROBABILITY_TOLERANCE = 1e-6;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  if (value == null || typeof value !== "object" || Array.isArray(value)) return false;
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
+}
+
+function hasExactKeys(value: Record<string, unknown>, keys: readonly string[]): boolean {
+  const actual = Object.keys(value);
+  return actual.length === keys.length && keys.every((key) => Object.hasOwn(value, key));
+}
+
+function invalidJevAnswer(message: string): never {
+  throw new Error(`invalid Jev answer: ${message}`);
+}
+
+function validProbability(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 1;
+}
+
+function validateChoiceAnswer(raw: unknown, id: string, allowed: readonly string[]): ChoiceAnswer {
+  if (!isRecord(raw)) invalidJevAnswer(`${id} must be an answer object`);
+  if (raw.type !== undefined && raw.type !== "choice") invalidJevAnswer(`${id} has an invalid type`);
+  const choice = raw.choice;
+  if (typeof choice !== "string" || !allowed.includes(choice)) {
+    invalidJevAnswer(`${id} selected an unknown choice`);
+  }
+  if (raw.confidence !== undefined && !validProbability(raw.confidence)) {
+    invalidJevAnswer(`${id} has an invalid confidence`);
+  }
+
+  let probabilities: Record<string, number> | undefined;
+  if (raw.probabilities !== undefined) {
+    const rawProbabilities = raw.probabilities;
+    if (!isRecord(rawProbabilities) || !hasExactKeys(rawProbabilities, allowed)) {
+      invalidJevAnswer(`${id} probabilities must contain exactly the known choices`);
+    }
+    const values = allowed.map((key) => rawProbabilities[key]);
+    if (!values.every(validProbability)) {
+      invalidJevAnswer(`${id} probabilities must be finite numbers in [0, 1]`);
+    }
+    const numericValues = values as number[];
+    const sum = numericValues.reduce((total, probability) => total + probability, 0);
+    if (Math.abs(sum - 1) > PROBABILITY_TOLERANCE) {
+      invalidJevAnswer(`${id} probabilities must sum to 1`);
+    }
+    const selected = rawProbabilities[choice] as number;
+    if (numericValues.some((probability) => probability > selected + PROBABILITY_TOLERANCE)) {
+      invalidJevAnswer(`${id} choice must have maximal probability`);
+    }
+    probabilities = Object.fromEntries(allowed.map((key) => [key, rawProbabilities[key] as number]));
+  }
+
+  return {
+    ...(raw.type !== undefined ? { type: "choice" as const } : {}),
+    choice,
+    ...(raw.confidence !== undefined ? { confidence: raw.confidence } : {}),
+    ...(probabilities !== undefined ? { probabilities } : {}),
+  };
+}
+
+/** Validate the successful provider boundary without changing Jev's fallback semantics. */
+export function validateJevAnswers(
+  answers: unknown,
+  positionSide: "long" | "short" | "flat",
+  maxLeverage: number,
+): JevAnswers {
+  if (!isRecord(answers) || !hasExactKeys(answers, ["bias", "intent", "leverage"])) {
+    invalidJevAnswer("bias, intent, and leverage are required");
+  }
+  if (!Number.isFinite(maxLeverage) || maxLeverage < 1) invalidJevAnswer("max leverage is invalid");
+
+  const intentChoices = positionSide === "flat" ? ["open", "hold"] : ["open", "close", "hold"];
+  const rungs = leverageRungs(maxLeverage).map(String);
+  return {
+    bias: validateChoiceAnswer(answers.bias, "bias", ["long", "short"]),
+    intent: validateChoiceAnswer(answers.intent, "intent", intentChoices),
+    leverage: validateChoiceAnswer(answers.leverage, "leverage", rungs),
+  };
+}
+
+function jsonSnapshot<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value)) as T;
+}
+
+export function createJevAudit(input: {
+  provider: JevProvider;
+  modelId: string;
+  state: MarketFacingState;
+  questions: JevQuestionSet;
+  rawAnswers: JevAnswers;
+  usage: JevUsage;
+  modelCostUsd?: number;
+  modelCostSource?: string;
+}): JevAudit {
+  return {
+    provider: input.provider,
+    modelId: input.modelId,
+    promptVersion: JEV_PROMPT_VERSION,
+    state: jsonSnapshot(input.state),
+    questions: jsonSnapshot(input.questions),
+    rawAnswers: jsonSnapshot(input.rawAnswers),
+    usage: jsonSnapshot(input.usage),
+    ...(input.modelCostUsd !== undefined ? { modelCostUsd: input.modelCostUsd } : {}),
+    ...(input.modelCostSource !== undefined ? { modelCostSource: input.modelCostSource } : {}),
+  };
+}
 
 /** Map a Jev answer set onto one tick. A side we cannot read is a hold, not a long. */
 export function decideFromJevAnswers(
@@ -313,6 +470,36 @@ function typesafeClient(): TypeSafeClient {
 
 const JEV_DEADLINE_MS = 4000;
 
+interface JevCall {
+  answers: JevAnswers;
+  state: MarketFacingState;
+  questions: JevQuestionSet;
+  modelId: string;
+  inputTokens?: number;
+  outputTokens?: number;
+  modelCostUsd?: number;
+  modelCostSource?: string;
+}
+
+function tokenCount(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : undefined;
+}
+
+function gatewayCost(providerMetadata: unknown): { modelCostUsd: number; modelCostSource: string } | undefined {
+  if (!isRecord(providerMetadata)) return undefined;
+  const gateway = providerMetadata.gateway;
+  if (!isRecord(gateway)) return undefined;
+  const rawCost = gateway.cost;
+  const cost = typeof rawCost === "number"
+    ? rawCost
+    : typeof rawCost === "string" && rawCost.trim() !== ""
+      ? Number(rawCost)
+      : NaN;
+  return Number.isFinite(cost) && cost >= 0
+    ? { modelCostUsd: cost, modelCostSource: "providerMetadata.gateway.cost" }
+    : undefined;
+}
+
 function withDeadline<T>(p: Promise<T>, ms: number): Promise<T> {
   return new Promise((resolve, reject) => {
     const t = setTimeout(() => reject(new Error(`jev timeout ${ms}ms`)), ms);
@@ -323,7 +510,7 @@ function withDeadline<T>(p: Promise<T>, ms: number): Promise<T> {
   });
 }
 
-async function callJev(state: TradeState): Promise<{ answers: JevAnswers; inputTokens: number }> {
+async function callJev(state: TradeState): Promise<JevCall> {
   const seen = marketFacing(state);
   const qs = jevQuestions(state);
   const run = async () => {
@@ -334,7 +521,17 @@ async function callJev(state: TradeState): Promise<{ answers: JevAnswers; inputT
         questions: qs,
         maxRetries: 0,
       });
-      return { answers: r.answers, inputTokens: r.usage?.inputTokens ?? 0 };
+      const answers = validateJevAnswers(r.answers, state.position.side, state.maxLeverage);
+      const cost = gatewayCost(r.providerMetadata);
+      return {
+        answers,
+        state: seen,
+        questions: qs,
+        modelId: r.response.modelId,
+        inputTokens: tokenCount(r.usage?.inputTokens),
+        outputTokens: tokenCount(r.usage?.outputTokens),
+        ...cost,
+      };
     }
     const r = await typesafeClient().systemOne(
       {
@@ -344,7 +541,15 @@ async function callJev(state: TradeState): Promise<{ answers: JevAnswers; inputT
       },
       { retry: { maxRetries: 0 } },
     );
-    return { answers: r.answers, inputTokens: r.usage.input_tokens ?? 0 };
+    const answers = validateJevAnswers(r.answers, state.position.side, state.maxLeverage);
+    return {
+      answers,
+      state: seen,
+      questions: qs,
+      modelId: r.model,
+      inputTokens: tokenCount(r.usage.input_tokens),
+      outputTokens: tokenCount(r.usage.output_tokens),
+    };
   };
   return withDeadline(run(), JEV_DEADLINE_MS);
 }
@@ -356,14 +561,28 @@ export class JevModel implements Model {
   async decide(state: TradeState): Promise<ModelDecision> {
     const t0 = performance.now();
     const r = await callJev(state);
-    return decideFromJevAnswers(
+    const decision = decideFromJevAnswers(
       r.answers,
       state.position.side,
       state.maxLeverage,
       state.position.leverage,
       performance.now() - t0,
-      r.inputTokens,
+      r.inputTokens ?? 0,
     );
+    decision.outputTokens = r.outputTokens;
+    decision.modelCostUsd = r.modelCostUsd;
+    decision.modelCostSource = r.modelCostSource;
+    decision.audit = createJevAudit({
+      provider: config.jevProvider,
+      modelId: r.modelId,
+      state: r.state,
+      questions: r.questions,
+      rawAnswers: r.answers,
+      usage: { inputTokens: r.inputTokens, outputTokens: r.outputTokens },
+      modelCostUsd: r.modelCostUsd,
+      modelCostSource: r.modelCostSource,
+    });
+    return decision;
   }
 }
 
@@ -409,6 +628,9 @@ export class MockModel implements Model {
 
 export const createModel = (): Model => {
   if (config.model !== "jev") return new MockModel();
-  assertJevCredentials(config.model, config.jevProvider, process.env);
+  assertJevCredentials(config.model, config.jevProvider, {
+    TYPESAFE_API_KEY: process.env.TYPESAFE_API_KEY,
+    AI_GATEWAY_API_KEY: process.env.AI_GATEWAY_API_KEY,
+  });
   return new JevModel();
 };

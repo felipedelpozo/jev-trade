@@ -1,6 +1,6 @@
 import type { Fill, Side } from "./types";
 
-export interface TradePrint { block: number; price: number; size: number; side: Side }
+export interface TradePrint { block: number; price: number; size: number; side: Side; ts?: number }
 
 /** One of our resting orders got hit. `side` is our maker side. */
 export interface MakerFill {
@@ -26,7 +26,7 @@ export interface TradeSummary {
   lastSide: Side | null;
 }
 
-export interface Resting { side: Side; price: number; size: number; block: number }
+export interface Resting { side: Side; price: number; size: number; block: number; ts?: number }
 
 export const emptySummary = (): TradeSummary => ({
   count: 0, buySz: 0, sellSz: 0, cvdSz: 0, vwap: null, lastPrice: null, lastSide: null,
@@ -46,8 +46,8 @@ export class TradeFeed {
   }
 
   pushPrint(p: Omit<TradePrint, "block"> & { block?: number }) {
-    const t: TradePrint = { block: p.block ?? this.tick, price: p.price, size: p.size, side: p.side };
-    if (t.size <= 0 || t.price <= 0) return;
+    const t: TradePrint = { block: p.block ?? this.tick, price: p.price, size: p.size, side: p.side, ts: p.ts };
+    if (!Number.isFinite(t.size) || !Number.isFinite(t.price) || t.size <= 0 || t.price <= 0) return;
     this.trades.push(t);
     this.fresh.push(t);
     if (this.trades.length > RING) this.trades.splice(0, this.trades.length - RING);
@@ -113,14 +113,18 @@ export function takeLiveFills(orders: Map<number, Resting>, raw: MakerFill[]): (
   return out;
 }
 
-export function takeSimFills(orders: Map<number, Resting>, prints: TradePrint[]): (Fill & { block: number })[] {
+export function takeSimFills(orders: Map<number, Resting>, prints: TradePrint[], participation = 1): (Fill & { block: number })[] {
+  if (!Number.isFinite(participation) || participation <= 0 || participation > 1) throw new Error("Invalid fill participation");
   const out: (Fill & { block: number })[] = [];
   for (const p of prints) {
+    if (!Number.isFinite(p.size) || !Number.isFinite(p.price) || p.size <= 0 || p.price <= 0) continue;
+    let available = p.size * participation;
     for (const [id, o] of orders) {
-      if (p.block < o.block || o.size <= 0) continue;
+      if (available <= 0 || p.block < o.block || o.size <= 0 || (o.ts != null && (p.ts == null || p.ts <= o.ts))) continue;
       const hit = o.side === "buy" ? p.side === "sell" && p.price <= o.price : p.side === "buy" && p.price >= o.price;
       if (!hit) continue;
-      const size = Math.min(o.size, p.size);
+      const size = Math.min(o.size, available);
+      available -= size;
       o.size -= size;
       if (o.size <= 1e-9) orders.delete(id);
       out.push({ side: o.side, size, price: o.price, txHash: null, orderId: id, simulated: true, block: p.block });
@@ -136,6 +140,9 @@ export function aggregateFills(fills: Fill[]): Fill {
   const same = fills.filter((f) => f.side === side);
   const size = same.reduce((s, f) => s + f.size, 0);
   const price = same.reduce((s, f) => s + f.size * f.price, 0) / size;
-  const round4 = (x: number) => Math.round(x * 1e4) / 1e4;
-  return { side, size: round4(size), price, txHash: same[0]!.txHash, orderId: same[0]!.orderId, simulated: same[0]!.simulated, dir: same[0]!.dir };
+  return {
+    side, size, price, txHash: same[0]!.txHash, orderId: same[0]!.orderId, simulated: same[0]!.simulated, dir: same[0]!.dir,
+    feeUsd: same.reduce((sum, f) => sum + (f.feeUsd ?? 0), 0),
+    closedPnl: same.reduce((sum, f) => sum + (f.closedPnl ?? 0), 0),
+  };
 }

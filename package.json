@@ -6,7 +6,7 @@
   "homepage": "https://www.jev-trade.com",
   "repository": {
     "type": "git",
-    "url": "https://github.com/aowang-ai/jev-trade.git"
+    "url": "https://github.com/felipedelpozo/jev-trade.git"
   },
   "engines": {
     "bun": ">=1.2.0"
@@ -28,6 +28,7 @@
     "start": "bun run src/index.ts",
     "dev": "bun --watch run src/index.ts",
     "dev:web": "bun --cwd web run dev",
-    "test": "bun test test"
+    "test": "bun test test",
+    "typecheck": "tsc --noEmit"
   }
 }

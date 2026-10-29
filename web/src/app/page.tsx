@@ -10,6 +10,7 @@ import SleeveStrip from "@/components/SleeveStrip/SleeveStrip";
 import { lastMeaningfulCall } from "@/lib/format";
 import { portfolioBalance, portfolioPnl } from "@/lib/pnl";
 import { useFeed } from "@/lib/useFeed";
+import { aggregatePaper, type PaperMetrics } from "@/lib/paper";
 import type { BlockEvent, Meta, SleeveFeed } from "@/lib/types";
 import styles from "./page.module.css";
 
@@ -25,8 +26,38 @@ function viewMeta(meta: Meta | null, coin: string): Meta | null {
     coin,
     pair: sleeve?.pair ?? meta.pair,
     market: sleeve?.pair ?? meta.market,
-    wallet: sleeve?.wallet ?? meta.wallet,
+    wallet: sleeve ? sleeve.wallet : meta.wallet,
+    dryRun: sleeve?.dryRun ?? meta.dryRun,
   };
+}
+
+function SimulationSummary({ paper }: { paper: PaperMetrics }) {
+  const usd = (value: number) => `$${value.toFixed(2)}`;
+  const costUsd = (value: number) => `$${value.toFixed(6)}`;
+  return (
+    <section className={styles.simulation} aria-label="Paper simulation summary">
+      <div className={styles.simulationTitle}>SIMULATION <span>(real market data)</span></div>
+      <div className={styles.simulationStats}>
+        <span><b>equity</b> {usd(paper.equityUsd)}</span>
+        <span><b>available</b> {usd(paper.availableUsd)}</span>
+        <span><b>net PnL</b> {paper.netPnlUsd >= 0 ? "+" : "-"}{usd(Math.abs(paper.netPnlUsd))}</span>
+        <span><b>fees (estimated)</b> {usd(paper.feesUsd)}</span>
+        <span><b>funding (estimated)</b> {usd(paper.fundingUsd)}</span>
+        <span><b>AI costs{paper.modelCostEstimated ? " (estimated)" : ""}</b> {costUsd(paper.modelUsd)}</span>
+        <span><b>drawdown</b> {usd(paper.drawdownUsd)}</span>
+      </div>
+    </section>
+  );
+}
+
+function RiskNotice({ latest }: { latest: BlockEvent | null }) {
+  if (!latest?.paper?.halted && !latest?.riskReason) return null;
+  const reason = latest.riskReason || "risk limits reached";
+  return (
+    <div className={styles.riskNotice} role="status">
+      <b>{latest.paper?.halted ? "Simulation stopped" : "Order blocked"}:</b> {reason}.
+    </div>
+  );
 }
 
 export default function Page() {
@@ -65,6 +96,7 @@ export default function Page() {
 
   const pnl = useMemo(() => portfolioPnl(latestByCoin), [latestByCoin]);
   const balance = useMemo(() => portfolioBalance(latestByCoin), [latestByCoin]);
+  const paper = useMemo(() => aggregatePaper(latestByCoin), [latestByCoin]);
   const hasBooks = coins.some((c) => latestByCoin[c]);
   const waiting = !feed.meta;
 
@@ -75,7 +107,11 @@ export default function Page() {
         balance={hasBooks ? balance : null}
         unrealized={hasBooks ? pnl.unrealized : null}
         realized={hasBooks ? pnl.realized : null}
+        dryRun={Boolean(feed.meta?.dryRun)}
+        paper={paper}
       />
+      {paper ? <SimulationSummary paper={paper} /> : null}
+      <RiskNotice latest={sleeve.latest} />
       <SleeveStrip
         sleeves={feed.meta?.sleeves ?? []}
         latestByCoin={latestByCoin}

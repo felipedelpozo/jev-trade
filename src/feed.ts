@@ -69,10 +69,10 @@ export class Feed {
       body: JSON.stringify({ type: "l2Book", coin: this.coin }),
     });
     if (!res.ok) throw new Error(`hl l2Book HTTP ${res.status}`);
-    const data = (await res.json()) as { levels?: [{ px: string; sz: string }[], { px: string; sz: string }[]] };
+    const data = (await res.json()) as { time?: number; levels?: [{ px: string; sz: string }[], { px: string; sz: string }[]] };
     if (!data.levels) return;
     const next = bookFromLevels(this.tick, data.levels[0] ?? [], data.levels[1] ?? []);
-    if (next) this.book = next;
+    if (next) this.book = { ...next, ts: data.time ?? Date.now() };
   }
 
   private openSocket(delay = 0) {
@@ -115,7 +115,7 @@ export class Feed {
     if (m.channel === "l2Book" && m.data?.levels) {
       const next = bookFromLevels(this.tick, m.data.levels[0] ?? [], m.data.levels[1] ?? []);
       if (next) {
-        this.book = next;
+        this.book = { ...next, ts: Number(m.data.time) || Date.now() };
         this.maybePrice();
         this.maybeTick();
       }
@@ -193,12 +193,13 @@ export class Feed {
       body: JSON.stringify({ type: "recentTrades", coin: this.coin }),
     });
     if (!res.ok) return;
-    const prints = (await res.json()) as { px: string; sz: string; side: string; tid?: number }[];
+    const prints = (await res.json()) as { px: string; sz: string; side: string; tid?: number; time?: number }[];
     if (!Array.isArray(prints)) return;
     for (const t of prints) this.ingestPrint(t);
   }
 
-  private ingestPrint(t: { px?: string; sz?: string; side?: string; tid?: number }) {
+  private ingestPrint(t: { px?: string; sz?: string; side?: string; tid?: number; time?: number }) {
+    if (!Number.isFinite(t.time) || !(t.time! > 0)) return;
     const tid = t.tid;
     if (tid != null) {
       if (this.seenTids.has(tid)) return;
@@ -212,6 +213,7 @@ export class Feed {
       price: Number(t.px),
       size: Number(t.sz),
       side: t.side === "B" ? "buy" : "sell",
+      ts: t.time,
     });
   }
 

@@ -36,6 +36,12 @@
   white-space: nowrap;
 }
 
+@media (max-width: 760px) and (min-width: 641px) {
+  .tagline {
+    display: none;
+  }
+}
+
 .links {
   display: flex;
   align-items: center;

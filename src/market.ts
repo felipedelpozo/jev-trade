@@ -1,7 +1,7 @@
 import { ApiRequestError, ExchangeClient, HttpTransport, InfoClient } from "@nktkas/hyperliquid";
 import { formatPrice, formatSize, SymbolConverter } from "@nktkas/hyperliquid/utils";
 import { privateKeyToAccount, type PrivateKeyAccount } from "viem/accounts";
-import { config } from "./config";
+import { config, hexKey } from "./config";
 import { accountFromClearinghouse, fillDir, FillPnlBook, type ClearinghouseLike, type FillPnlLike, type VenueAccount } from "./account";
 import { quotePrice, takerPrice } from "./book";
 import type { Feed } from "./feed";
@@ -50,7 +50,7 @@ export class Market {
     this.coin = sleeve.coin;
     this.pair = sleeve.pair;
     this.label = sleeve.label;
-    this.wallet = config.dryRun || !sleeve.privateKey ? null : privateKeyToAccount(sleeve.privateKey);
+    this.wallet = config.dryRun || !sleeve.privateKey ? null : privateKeyToAccount(hexKey(sleeve.privateKey));
     const transport = new HttpTransport({ isTestnet: config.hlTestnet });
     this.info = new InfoClient({ transport });
     if (this.wallet) this.ex = new ExchangeClient({ transport, wallet: this.wallet });

@@ -7,6 +7,11 @@ const nextConfig: NextConfig = {
   // Agent rules live in the repo-root CLAUDE.md. Do not emit web/AGENTS.md.
   agentRules: false,
   allowedDevOrigins: ["127.0.0.1", "localhost"],
+  // Keep the bot private inside the Compose network while the browser stays same-origin.
+  async rewrites() {
+    const bot = process.env.BOT_API_INTERNAL_URL ?? "http://bot:3000";
+    return [{ source: "/api/:path*", destination: `${bot}/:path*` }];
+  },
 };
 
 export default nextConfig;

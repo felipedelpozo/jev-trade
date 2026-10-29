@@ -8,6 +8,47 @@
   align-items: stretch;
 }
 
+.simulation {
+  flex: none;
+  padding: 8px 20px 9px;
+  border-bottom: 1px solid var(--border);
+  font-size: 11px;
+}
+
+.simulationTitle {
+  font-weight: 700;
+  letter-spacing: 0.1em;
+}
+
+.simulationTitle span {
+  color: var(--muted);
+  font-weight: 500;
+  letter-spacing: 0;
+}
+
+.simulationStats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 18px;
+  margin-top: 3px;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.simulationStats b {
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.riskNotice {
+  flex: none;
+  padding: 7px 20px;
+  border-bottom: 1px solid var(--border);
+  background: var(--late-cell);
+  color: var(--ink-2);
+  font-size: 11px;
+}
+
 .left {
   display: flex;
   flex-direction: column;

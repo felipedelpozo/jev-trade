@@ -23,7 +23,7 @@ export interface ClearinghouseLike {
       entryPx?: string;
       unrealizedPnl?: string;
       leverage?: { type?: string; value?: number };
-      liquidationPx?: string;
+      liquidationPx?: string | null;
     };
   }>;
 }

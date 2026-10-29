@@ -3,6 +3,7 @@
 import { fmtSignedUsd, fmtUsd } from "@/lib/format";
 import Logo from "@/components/Logo/Logo";
 import { Bone } from "@/components/Skeleton/Skeleton";
+import type { PaperMetrics } from "@/lib/paper";
 import styles from "./Header.module.css";
 
 export interface HeaderProps {
@@ -10,6 +11,8 @@ export interface HeaderProps {
   balance: number | null;
   unrealized: number | null;
   realized: number | null;
+  dryRun?: boolean;
+  paper?: PaperMetrics | null;
 }
 
 function Score({
@@ -43,19 +46,21 @@ function GitHubMark() {
   );
 }
 
-export default function Header({ connection, balance, unrealized, realized }: HeaderProps) {
+export default function Header({ connection, balance, unrealized, realized, dryRun = false, paper }: HeaderProps) {
   const live = connection === "live";
+  const equity = dryRun ? paper?.equityUsd ?? balance : balance;
+  const netPnl = dryRun ? paper?.netPnlUsd ?? realized : realized;
 
   return (
     <div className={styles.header}>
       <span className={styles.brandLockup}>
         <Logo size={20} />
         <h1 className={styles.brand}>Jev Trade</h1>
-        <p className={styles.tagline}>Live Jev trading bot</p>
+        <p className={styles.tagline}>{dryRun ? "Simulation (real market data)" : paper ? "Live and simulated sleeves" : "Live Jev trading bot"}</p>
         <span className={styles.links}>
           <a
             className={styles.link}
-            href="https://github.com/aowang-ai/jev-trade"
+            href="https://github.com/felipedelpozo/jev-trade"
             target="_blank"
             rel="noreferrer"
             aria-label="jev-trade on GitHub"
@@ -69,9 +74,9 @@ export default function Header({ connection, balance, unrealized, realized }: He
         <span>{live ? "Live" : "Offline"}</span>
       </span>
       <span className={styles.scores}>
-        <Score label="balance" value={balance} signed={false} />
+        <Score label={dryRun ? "equity" : "balance"} value={equity} signed={false} />
         <Score label="unrealized" value={unrealized} />
-        <Score label="realized" value={realized} />
+        <Score label={dryRun ? "net PnL" : "realized"} value={netPnl} />
       </span>
     </div>
   );

@@ -1,5 +1,54 @@
 # Jev Trade
 
+## Persistent paper-trading fork
+
+This fork of [aowang-ai/jev-trade](https://github.com/aowang-ai/jev-trade) keeps
+Jev's open/close/hold decisions and adds a durable simulated account. Our deployment
+uses BTC public mainnet data, Jev through Gateway once per minute, `DRY_RUN=true`,
+and no trading wallet. The original project's live-trading documentation follows below.
+
+- Each coin has its own SQLite account: $200 starting equity, $100 maximum position
+  notional, 1x collateral and a $20 loss/drawdown halt by default. The bankroll is
+  now enforced in simulation, not just used as a percentage denominator.
+- PnL includes configured maker/taker fees, crossing the bid/ask on exits,
+  configurable exit slippage, estimated funding and model costs. The dashboard
+  labels assumptions as estimates. Funding uses the observed hourly rate and mark
+  held constant over the cursor gap, including downtime, rather than historical
+  venue settlements. Model billing uses reported Gateway cost when available;
+  otherwise configured token rates. Failed requests use a rough input-token
+  estimate. Reconcile against actual provider bills before treating this as net profit.
+- Simulated maker fills use only prints timestamped after a quote was created and
+  at most 10% of their observed size. This is a participation assumption, not a
+  queue-priority or latency model. Exits use the current touch plus assumed slippage;
+  there is no full-depth market-impact or liquidation model.
+- Account and audit updates commit atomically with SQLite WAL and FULL synchronous
+  writes. Restart restores balances, positions, costs, halts and recent tick history.
+  Resting simulated quotes are cancelled at restart. Run one writer per account.
+- Stale books, expired decisions, insufficient collateral and exposure violations
+  block orders independently of Jev. A loss/drawdown halt closes the simulated position
+  at the next fresh tick and stops further model calls for that sleeve. A gap can
+  exceed the loss threshold; the threshold does not guarantee an exit price.
+- Local audit records include the exact market-facing request, question version,
+  validated raw answers, usage, orders and fills. They are not exposed through the
+  public API. No code was copied from projects with undeclared reuse licenses.
+
+Use `.env.example` for the configuration. Persist `PAPER_DATA_DIR` on a named volume;
+`docker-compose.dry-run.yml` includes one. Never use `down -v` or Dokploy's Fresh
+Volumes for this deployment. Keep a backup of the SQLite database using SQLite's
+backup API while running, or copy it after stopping the bot. Changing financial
+account settings with an existing database fails closed; preserve the old database
+and select a new directory for a separate experiment instead of silently resetting it.
+
+```sh
+bun install --frozen-lockfile
+bun test test
+bun run typecheck
+docker compose -f docker-compose.dry-run.yml up -d --build
+```
+
+This fork adds measurement and safeguards. It has not established a profitable
+strategy. `HOLD` remains a valid model decision, and no account deposit is needed.
+
 [![Live desk](https://img.shields.io/badge/live-jev--trade.com-111)](https://www.jev-trade.com/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-111)](LICENSE)
 

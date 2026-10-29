@@ -24,3 +24,18 @@ test("aggregateFills keeps the heavier side", () => {
   expect(fill.size).toBeCloseTo(0.003, 8);
   expect(fill.price).toBe(11);
 });
+
+test("a print's participation budget cannot be reused across several orders", () => {
+  const orders = new Map<number, Resting>([
+    [1, { side: "buy", price: 100, size: 1, block: 1 }],
+    [2, { side: "buy", price: 100, size: 1, block: 1 }],
+  ]);
+  const fills = takeSimFills(orders, [{ block: 2, price: 99, size: 2, side: "sell" }], 0.1);
+  expect(fills.reduce((sum, fill) => sum + fill.size, 0)).toBeCloseTo(0.2);
+});
+
+test("aggregation preserves small BTC fills and their fees", () => {
+  const fill = aggregateFills([{ side: "buy", size: 0.00001, price: 80000, txHash: null, orderId: 1, simulated: true, feeUsd: 0.00012 }]);
+  expect(fill.size).toBe(0.00001);
+  expect(fill.feeUsd).toBe(0.00012);
+});

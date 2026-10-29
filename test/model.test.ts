@@ -1,5 +1,12 @@
 import { expect, test } from "bun:test";
-import { decideFromJevAnswers, jevQuestions, marketFacing, type TradeState } from "../src/model";
+import {
+  createJevAudit,
+  decideFromJevAnswers,
+  jevQuestions,
+  marketFacing,
+  validateJevAnswers,
+  type TradeState,
+} from "../src/model";
 
 function fixture(side: TradeState["position"]["side"]): TradeState {
   return {
@@ -141,4 +148,53 @@ test("an unrecognised bias stands down instead of opening long", () => {
   expect(d.action).toBe("hold");
   expect(d.probabilities.long).toBe(d.probabilities.short);
   expect(d.probabilities.long).toBeLessThan(1);
+});
+
+function validProviderAnswers() {
+  return {
+    bias: { type: "choice", choice: "long", confidence: 1, probabilities: { long: 1, short: 0 } },
+    intent: { type: "choice", choice: "hold", probabilities: { open: 0, hold: 1 } },
+    leverage: { type: "choice", choice: "5", probabilities: { "1": 0, "2": 0, "3": 0, "5": 1 } },
+  } as const;
+}
+
+test("provider answers are validated without normalising away zero probabilities", () => {
+  const answers = validateJevAnswers(validProviderAnswers(), "flat", 5);
+  expect(answers.bias?.probabilities).toEqual({ long: 1, short: 0 });
+  expect(answers.intent?.probabilities).toEqual({ open: 0, hold: 1 });
+  expect(answers.leverage?.choice).toBe("5");
+});
+
+test("malformed provider answers fail at the boundary", () => {
+  const malformed = [
+    { ...validProviderAnswers(), bias: undefined },
+    { ...validProviderAnswers(), bias: { ...validProviderAnswers().bias, probabilities: { long: Number.NaN, short: 0 } } },
+    { ...validProviderAnswers(), bias: { ...validProviderAnswers().bias, probabilities: { long: 0.7, short: 0.1 } } },
+    { ...validProviderAnswers(), bias: { ...validProviderAnswers().bias, choice: "short" } },
+    { ...validProviderAnswers(), leverage: { ...validProviderAnswers().leverage, choice: "4" } },
+  ];
+  for (const answers of malformed) {
+    expect(() => validateJevAnswers(answers, "flat", 5)).toThrow();
+  }
+});
+
+test("Jev audit snapshots only the market-facing request and safe answer fields", () => {
+  const state = fixture("flat");
+  const audit = createJevAudit({
+    provider: "gateway",
+    modelId: "typesafe-ai/jev",
+    state: marketFacing(state),
+    questions: jevQuestions(state),
+    rawAnswers: validateJevAnswers(validProviderAnswers(), "flat", 5),
+    usage: { inputTokens: 12, outputTokens: 7 },
+  });
+
+  expect(audit.provider).toBe("gateway");
+  expect(audit.modelId).toBe("typesafe-ai/jev");
+  expect(audit.promptVersion).toBeString();
+  expect(audit.usage).toEqual({ inputTokens: 12, outputTokens: 7 });
+  expect(audit.rawAnswers.bias?.probabilities?.short).toBe(0);
+  expect(JSON.stringify(audit)).not.toContain("headers");
+  state.book.bids.push("mutated after request");
+  expect(audit.state.book.bids).toEqual([]);
 });
