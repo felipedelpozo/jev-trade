@@ -84,6 +84,7 @@ export const config = {
   modelOutputUsdPerMTok: numeric("MODEL_OUTPUT_USD_PER_MTOK", 0.042, 0),
   maxBookAgeMs: numeric("MAX_BOOK_AGE_MS", 10000, 100),
   maxDecisionAgeMs: numeric("MAX_DECISION_AGE_MS", 4000, 100),
+  dailyAiBudgetUsd: numeric("DAILY_AI_BUDGET_USD", 0.60, 0),
 };
 
 if (config.paperSlippageBps > config.closeSlippageBps) {

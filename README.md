@@ -78,6 +78,17 @@ docker compose -f docker-compose.dry-run.yml up -d --build
 This fork adds measurement and safeguards. It has not established a profitable
 strategy. `HOLD` remains a valid model decision, and no account deposit is needed.
 
+The owner-authorized daily optimization workflow is documented in
+[`OPTIMIZATION.md`](OPTIMIZATION.md). It may implement, test and deploy bounded
+paper-only improvements. `DAILY_AI_BUDGET_USD=0.60` pauses new calls when recorded daily cost plus a reserve would exceed the threshold
+with a conservative next-request reserve; late billing remains a limitation.
+At fixed 1x leverage, Jev answers only bias and intent; code supplies the fixed
+leverage rather than paying for a question with no alternative.
+
+Run `bun run optimize:report` for a read-only operating/financial summary. It
+does not call Jev. Insufficient history, unresolved bills and unsupported
+multi-sleeve aggregation are reported rather than interpreted as an edge.
+
 [![Live desk](https://img.shields.io/badge/live-jev--trade.com-111)](https://www.jev-trade.com/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-111)](LICENSE)
 

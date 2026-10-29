@@ -117,6 +117,14 @@ export class Trader {
         this.emit(block, book, null, null, false);
         return;
       }
+      // shortcut: $0.001 exceeds current measured Jev charges; revisit if pricing or prompt size increases.
+      if (this.paper && this.model.name === "jev" && this.paper.usage.today.totalUsd + 0.001 > config.dailyAiBudgetUsd + 1e-12) {
+        this.riskReason = "Daily AI budget reached";
+        this.enqueueStandDown();
+        this.emergencyClose(block, book);
+        this.emit(block, book, null, null, false);
+        return;
+      }
       const timing = { readMs: Math.round(readMs), loopMs: 0 };
       if (Date.now() < this.jevPauseUntil) {
         this.markLate(block, book);
@@ -498,6 +506,7 @@ export class Trader {
         drawdownUsd: paper.drawdownUsd, maxPositionUsd: config.paperMaxPositionUsd, maxLossUsd: config.paperMaxLossUsd,
         halted: paper.halted, modelCostEstimated: (usage?.allTime.estimatedRequests ?? 0) > 0, usage,
         realizedUsd: paper.realizedUsd, unrealizedUsd: paper.unrealizedUsd, netPnlUsd: paper.pnlUsd,
+        dailyAiBudgetUsd: config.dailyAiBudgetUsd,
       } } : {}),
     };
     const index = this.history.findIndex((e) => e.block === block);

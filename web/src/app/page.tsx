@@ -58,6 +58,7 @@ function SimulationSummary({ paper }: { paper: PaperMetrics }) {
             {periodRows.map(([label, allTime, current]) => <tr key={label}><th scope="row">{label}</th><td>{typeof current === "number" ? current.toLocaleString() : current}</td><td>{typeof allTime === "number" ? allTime.toLocaleString() : allTime}</td></tr>)}
           </tbody></table>
           {period ? <div className={styles.usageMeta}>Confirmed {period.reportedRequests}/{period.requests} requests, unknown tokens {period.unknownTokenRequests}, pending {period.pending}, failed {period.failed}</div> : <div className={styles.usageMeta}>No usage ledger reported yet.</div>}
+          {paper.dailyAiBudgetUsd != null ? <div className={styles.usageMeta}>Daily AI budget (UTC): ${paper.dailyAiBudgetUsd.toFixed(2)}. New requests pause before the next charge reserve.</div> : null}
         </div>
         <div>
           <h2>Paper P&amp;L (account period)</h2>

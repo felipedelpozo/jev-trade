@@ -139,11 +139,17 @@ interface JevChoiceQuestion {
   criteria: Record<string, string>;
 }
 
-export interface JevQuestionSet {
-  [key: string]: JevChoiceQuestion;
+interface BaseJevQuestionSet {
   bias: JevChoiceQuestion;
   intent: JevChoiceQuestion;
-  leverage: JevChoiceQuestion;
+}
+
+export type JevQuestionSet = BaseJevQuestionSet | (BaseJevQuestionSet & { leverage: JevChoiceQuestion });
+
+function sdkQuestions(questions: JevQuestionSet): Record<string, JevChoiceQuestion> {
+  const out: Record<string, JevChoiceQuestion> = {};
+  for (const [key, question] of Object.entries(questions)) out[key] = question;
+  return out;
 }
 
 /** Labels and live fields only. No advice about when to pick an action. */
@@ -183,26 +189,22 @@ export function jevQuestions(state: TradeState): JevQuestionSet {
     },
     criteria: levCriteria,
   };
-  if (pos.side === "flat") {
-    return {
-      bias,
-      intent: {
-        type: "choice" as const,
-        instructions: {
-          question: `open or hold ${asset}?`,
-          goal: `position=${stance}.`,
-          timing: `tickMs=${state.tickMs}`,
-          inputs: ctx,
-        },
-        criteria: {
-          open: "open",
-          hold: "hold",
-        },
+  const base: BaseJevQuestionSet = pos.side === "flat" ? {
+    bias,
+    intent: {
+      type: "choice" as const,
+      instructions: {
+        question: `open or hold ${asset}?`,
+        goal: `position=${stance}.`,
+        timing: `tickMs=${state.tickMs}`,
+        inputs: ctx,
       },
-      leverage,
-    };
-  }
-  return {
+      criteria: {
+        open: "open",
+        hold: "hold",
+      },
+    },
+  } : {
     bias,
     intent: {
       type: "choice" as const,
@@ -218,8 +220,8 @@ export function jevQuestions(state: TradeState): JevQuestionSet {
         hold: "hold",
       },
     },
-    leverage,
   };
+  return state.maxLeverage === 1 ? base : { ...base, leverage };
 }
 
 interface Packed {
@@ -317,7 +319,7 @@ export interface JevUsage {
   outputTokens?: number;
 }
 
-export const JEV_PROMPT_VERSION = "jev-questions-v1";
+export const JEV_PROMPT_VERSION = "jev-questions-v2-fixed-leverage";
 
 export interface JevAudit {
   provider: JevProvider;
@@ -399,16 +401,21 @@ export function validateJevAnswers(
   positionSide: "long" | "short" | "flat",
   maxLeverage: number,
 ): JevAnswers {
-  if (!isRecord(answers) || !hasExactKeys(answers, ["bias", "intent", "leverage"])) {
-    invalidJevAnswer("bias, intent, and leverage are required");
-  }
   if (!Number.isFinite(maxLeverage) || maxLeverage < 1) invalidJevAnswer("max leverage is invalid");
+  const keys = maxLeverage === 1 ? ["bias", "intent"] : ["bias", "intent", "leverage"];
+  if (!isRecord(answers) || !hasExactKeys(answers, keys)) {
+    invalidJevAnswer(`${keys.join(", ")} are required`);
+  }
 
   const intentChoices = positionSide === "flat" ? ["open", "hold"] : ["open", "close", "hold"];
-  const rungs = leverageRungs(maxLeverage).map(String);
-  return {
+  const validated = {
     bias: validateChoiceAnswer(answers.bias, "bias", ["long", "short"]),
     intent: validateChoiceAnswer(answers.intent, "intent", intentChoices),
+  };
+  if (maxLeverage === 1) return validated;
+  const rungs = leverageRungs(maxLeverage).map(String);
+  return {
+    ...validated,
     leverage: validateChoiceAnswer(answers.leverage, "leverage", rungs),
   };
 }
@@ -458,7 +465,7 @@ export function decideFromJevAnswers(
   return pack({
     intent,
     bias: biasPick ?? "long",
-    leverage: parseLeverage(answers.leverage?.choice, maxLeverage, currentLeverage ?? 1),
+    leverage: maxLeverage === 1 ? 1 : parseLeverage(answers.leverage?.choice, maxLeverage, currentLeverage ?? 1),
     longP: dir.long!,
     shortP: dir.short!,
     openP: act.open!,
@@ -501,6 +508,16 @@ export function generationId(value: unknown): string | undefined {
   return typeof value === "string" && /^gen_[a-zA-Z0-9_-]{8,128}$/.test(value) ? value : undefined;
 }
 
+/** Read only the bounded billing identifier; never forward the provider error itself. */
+export function generationIdFromError(error: unknown): string | undefined {
+  if (!(error instanceof Error) && !isRecord(error)) return undefined;
+  try {
+    return generationId(Reflect.get(error, "generationId"));
+  } catch {
+    return undefined;
+  }
+}
+
 function withDeadline<T>(p: Promise<T>, ms: number): Promise<T> {
   return new Promise((resolve, reject) => {
     const t = setTimeout(() => reject(new Error(`jev timeout ${ms}ms`)), ms);
@@ -514,12 +531,13 @@ function withDeadline<T>(p: Promise<T>, ms: number): Promise<T> {
 async function callJev(state: TradeState, context?: ModelContext): Promise<JevCall> {
   const seen = marketFacing(state);
   const qs = jevQuestions(state);
+  const sdkQs = sdkQuestions(qs);
   const run = async () => {
     if (config.jevProvider === "gateway") {
       const r = await evaluate({
         model: config.jevModelId,
         state: seen as never,
-        questions: qs,
+        questions: sdkQs,
         maxRetries: 0,
         providerOptions: { gateway: { user: "jev-trade", tags: ["jev-trade", "paper", state.coin] } },
       });
@@ -544,7 +562,7 @@ async function callJev(state: TradeState, context?: ModelContext): Promise<JevCa
       {
         model: config.jevModelId,
         state: seen as never,
-        questions: qs,
+        questions: sdkQs,
       },
       { retry: { maxRetries: 0 } },
     );
@@ -560,10 +578,8 @@ async function callJev(state: TradeState, context?: ModelContext): Promise<JevCa
     };
   };
   return withDeadline(run().catch((error: unknown) => {
-    if (isRecord(error)) {
-      const id = generationId(error.generationId);
-      if (id) context?.onUsage({ generationId: id });
-    }
+    const id = generationIdFromError(error);
+    if (id) context?.onUsage({ generationId: id });
     throw error;
   }), JEV_DEADLINE_MS);
 }

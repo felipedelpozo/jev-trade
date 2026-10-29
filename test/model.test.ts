@@ -2,13 +2,14 @@ import { expect, test } from "bun:test";
 import {
   createJevAudit,
   decideFromJevAnswers,
+  generationIdFromError,
   jevQuestions,
   marketFacing,
   validateJevAnswers,
   type TradeState,
 } from "../src/model";
 
-function fixture(side: TradeState["position"]["side"]): TradeState {
+function fixture(side: TradeState["position"]["side"], maxLeverage = 40): TradeState {
   return {
     coin: "BTC",
     market: "BTC-USD",
@@ -40,9 +41,9 @@ function fixture(side: TradeState["position"]["side"]): TradeState {
     },
     asset: {
       markPx: null, oraclePx: null, fundingBps: null, premiumBps: null,
-      openInterest: null, dayNtlVlmUsd: null, dayChangeBps: null, maxLeverage: 40,
+      openInterest: null, dayNtlVlmUsd: null, dayChangeBps: null, maxLeverage,
     },
-    maxLeverage: 40,
+    maxLeverage,
   };
 }
 
@@ -91,6 +92,11 @@ test("Jev questions name the actions and do not coach a pick", () => {
       expect(text).not.toContain(phrase);
     }
   }
+});
+
+test("1x requests omit leverage while higher caps keep all three questions", () => {
+  expect(Object.keys(jevQuestions(fixture("flat", 1)))).toEqual(["bias", "intent"]);
+  expect(Object.keys(jevQuestions(fixture("flat", 5)))).toEqual(["bias", "intent", "leverage"]);
 });
 
 test("evaluate state is the book and live position, not the wallet scoreboard", () => {
@@ -158,6 +164,18 @@ function validProviderAnswers() {
   } as const;
 }
 
+function validFixedLeverageAnswers() {
+  const { leverage: _leverage, ...answers } = validProviderAnswers();
+  return answers;
+}
+
+test("1x answers validate against the two questions and normalize leverage to 1", () => {
+  const answers = validateJevAnswers(validFixedLeverageAnswers(), "flat", 1);
+  expect("leverage" in answers).toBe(false);
+  expect(decideFromJevAnswers(answers, "flat", 1, 40).leverage).toBe(1);
+  expect(() => validateJevAnswers(validProviderAnswers(), "flat", 1)).toThrow();
+});
+
 test("provider answers are validated without normalising away zero probabilities", () => {
   const answers = validateJevAnswers(validProviderAnswers(), "flat", 5);
   expect(answers.bias?.probabilities).toEqual({ long: 1, short: 0 });
@@ -176,6 +194,18 @@ test("malformed provider answers fail at the boundary", () => {
   for (const answers of malformed) {
     expect(() => validateJevAnswers(answers, "flat", 5)).toThrow();
   }
+});
+
+class GatewayErrorLike extends Error {
+  generationId = "gen_gateway12345678";
+  secret = "do-not-forward";
+}
+
+test("billing metadata accepts provider error instances without forwarding the raw error", () => {
+  const error = new GatewayErrorLike("provider failed");
+  expect(generationIdFromError(error)).toBe("gen_gateway12345678");
+  expect(JSON.stringify(generationIdFromError(error))).not.toContain("do-not-forward");
+  expect(generationIdFromError({ generationId: "not-a-generation-id", secret: "do-not-forward" })).toBeUndefined();
 });
 
 test("Jev audit snapshots only the market-facing request and safe answer fields", () => {

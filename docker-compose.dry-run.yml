@@ -13,6 +13,7 @@ services:
       QUOTE_USD: "40"
       PORT: "3000"
       BANKROLL_USD: "200"
+      DAILY_AI_BUDGET_USD: "0.60"
       PAPER_DATA_DIR: /app/data/paper
       PAPER_MAX_POSITION_USD: "100"
       PAPER_MAX_LOSS_USD: "20"

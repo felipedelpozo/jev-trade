@@ -150,6 +150,7 @@ export interface PaperSummary {
   unrealizedUsd?: number;
   netPnlUsd?: number;
   usage?: UsageBalance;
+  dailyAiBudgetUsd?: number;
 }
 
 export interface BlockEvent {

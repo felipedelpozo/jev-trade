@@ -232,3 +232,34 @@ test("missing funding data closes exposure using a fresh book without asking Jev
     expect(model.calls).toBe(0);
   } finally { account.close(); }
 });
+
+test("daily AI budget stops new inference and closes paper exposure", async () => {
+  const { trader, model, account, events } = desk();
+  const previous = config.dailyAiBudgetUsd;
+  try {
+    config.dailyAiBudgetUsd = 0.6;
+    account.chargeModel(0.5995, { requestId: "today", provider: "gateway", modelId: "jev", status: "success", costSource: "reported" });
+    account.fund(0, 100, Date.now());
+    account.fill({ side: "buy", price: 100, size: 0.1, orderId: 1, txHash: null, simulated: true });
+    await trader.onBlock(1);
+    await trader.settled();
+    expect(model.calls).toBe(0);
+    expect(account.state.positionSz).toBe(0);
+    expect(events.at(-1)?.riskReason).toBe("Daily AI budget reached");
+    expect(account.usage.allTime.requests).toBe(1);
+  } finally { config.dailyAiBudgetUsd = previous; account.close(); }
+});
+
+test("yesterday's AI consumption does not consume the current UTC day budget", async () => {
+  const { trader, model, account } = desk();
+  const previous = config.dailyAiBudgetUsd;
+  try {
+    config.dailyAiBudgetUsd = 0.6;
+    const now = new Date();
+    account.chargeModel(0.7, { requestId: "yesterday", provider: "gateway", modelId: "jev", status: "success", costSource: "reported", at: Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()) - 1 });
+    await trader.onBlock(1);
+    await trader.settled();
+    expect(model.calls).toBe(1);
+    expect(account.usage.today.totalUsd).toBeLessThan(0.6);
+  } finally { config.dailyAiBudgetUsd = previous; account.close(); }
+});

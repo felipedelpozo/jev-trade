@@ -29,6 +29,7 @@
     "dev": "bun --watch run src/index.ts",
     "dev:web": "bun --cwd web run dev",
     "test": "bun test test",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "optimize:report": "bun run scripts/optimization-report.ts"
   }
 }
