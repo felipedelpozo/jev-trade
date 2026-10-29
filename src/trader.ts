@@ -497,6 +497,7 @@ export class Trader {
         feesUsd: paper.feesUsd, fundingUsd: paper.fundingUsd, modelUsd: paper.modelUsd,
         drawdownUsd: paper.drawdownUsd, maxPositionUsd: config.paperMaxPositionUsd, maxLossUsd: config.paperMaxLossUsd,
         halted: paper.halted, modelCostEstimated: (usage?.allTime.estimatedRequests ?? 0) > 0, usage,
+        realizedUsd: paper.realizedUsd, unrealizedUsd: paper.unrealizedUsd, netPnlUsd: paper.pnlUsd,
       } } : {}),
     };
     const index = this.history.findIndex((e) => e.block === block);

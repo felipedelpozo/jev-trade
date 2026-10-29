@@ -146,6 +146,9 @@ export interface PaperSummary {
   maxLossUsd: number;
   halted: boolean;
   modelCostEstimated: boolean;
+  realizedUsd?: number;
+  unrealizedUsd?: number;
+  netPnlUsd?: number;
   usage?: UsageBalance;
 }
 

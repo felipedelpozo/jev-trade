@@ -66,9 +66,9 @@ export function aggregatePaper(latestByCoin: Record<string, BlockEvent | null | 
         maxLossUsd: total.maxLossUsd + finite(paper.maxLossUsd),
         halted: total.halted || paper.halted,
         modelCostEstimated: total.modelCostEstimated || paper.modelCostEstimated,
-        netPnlUsd: total.netPnlUsd + finite(event.totals.pnlUsd),
-        grossRealizedUsd: total.grossRealizedUsd + finite(event.totals.realizedUsd),
-        unrealizedUsd: total.unrealizedUsd + (event.position?.side !== "flat" ? finite(event.position?.unrealizedUsd) : 0),
+        netPnlUsd: total.netPnlUsd + finite(paper.netPnlUsd ?? event.totals.pnlUsd),
+        grossRealizedUsd: total.grossRealizedUsd + finite(paper.realizedUsd ?? event.totals.realizedUsd),
+        unrealizedUsd: total.unrealizedUsd + finite(paper.unrealizedUsd ?? (event.position?.side !== "flat" ? event.position?.unrealizedUsd : 0)),
         netRealizedAfterCostsUsd: 0,
         netIncludingOpenUsd: 0,
         usage: paper.usage
