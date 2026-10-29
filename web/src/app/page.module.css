@@ -40,6 +40,92 @@
   font-weight: 500;
 }
 
+.usageGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(280px, 1fr);
+  gap: 18px;
+  margin-top: 8px;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.usageGrid h2 {
+  margin: 0 0 4px;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.usageGrid table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 10px;
+}
+
+.usageGrid th,
+.usageGrid td {
+  padding: 2px 5px;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.usageGrid th:first-child,
+.usageGrid td:first-child {
+  padding-left: 0;
+  text-align: left;
+}
+
+.usageGrid thead {
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.usageGrid tbody th {
+  color: var(--ink-2);
+  font-weight: 500;
+}
+
+.usageMeta {
+  margin-top: 5px;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.35;
+}
+
+.pnlRows {
+  display: grid;
+  gap: 2px;
+  font-size: 10px;
+}
+
+.pnlRows span {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.pnlRows b {
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.pnlTotal {
+  margin-top: 2px;
+  padding-top: 3px;
+  border-top: 1px solid var(--border);
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
 .riskNotice {
   flex: none;
   padding: 7px 20px;
@@ -111,5 +197,10 @@
     width: 100%;
     border-left: 0;
     border-top: 1px solid var(--border);
+  }
+
+  .usageGrid {
+    grid-template-columns: 1fr;
+    gap: 10px;
   }
 }

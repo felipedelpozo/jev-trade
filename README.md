@@ -32,6 +32,35 @@ and no trading wallet. The original project's live-trading documentation follows
   validated raw answers, usage, orders and fills. They are not exposed through the
   public API. No code was copied from projects with undeclared reuse licenses.
 
+### Jev consumption balance
+
+The dashboard shows today's UTC consumption and the full account period: request
+counts, input/output tokens, confirmed Gateway charges and unreconciled estimates.
+It separates realized trading PnL, open-position PnL, simulated fees, estimated
+funding, AI costs and the final net result. Net PnL already includes AI costs;
+do not subtract them again.
+
+Each paid-model attempt gets a durable local ID before the request starts.
+Successful, failed and late responses update the same charge. Gateway generation
+IDs are retained privately. A background job uses the official
+`gateway.getGenerationInfo()` lookup to replace an estimate with `totalCost`,
+including a confirmed zero, rather than adding a second cost. These billing reads
+do not generate additional inference requests. Lookup failures retry with backoff;
+the existing estimate remains visible until reconciliation succeeds. BYOK upstream
+costs are not treated as confirmed provider invoices.
+
+The old `providerMetadata.gateway.cost` field has no documented billing contract
+and is no longer treated as an actual charge. Existing account charges without
+generation IDs remain estimated, with unknown tokens/status explicitly counted;
+the account and its positions are not reset. Usage before the persistent account
+was created is outside this report. Official lookup documentation:
+https://vercel.com/docs/ai-gateway/observability-and-spend/usage
+
+`GET /usage` returns aggregate usage per coin, without generation IDs, API keys or
+request/response bodies. The dashboard refreshes these figures with the next normal
+market tick. Simulated fees/funding and open-position marks still make the overall
+trading result provisional even when all Gateway charges are confirmed.
+
 Use `.env.example` for the configuration. Persist `PAPER_DATA_DIR` on a named volume;
 `docker-compose.dry-run.yml` includes one. Never use `down -v` or Dokploy's Fresh
 Volumes for this deployment. Keep a backup of the SQLite database using SQLite's
@@ -167,6 +196,7 @@ See [`.env.example`](.env.example). The ones that change behavior:
 - `GET /` snapshot: model, sleeves, latestByCoin
 - `GET /history` last 1000 ticks per coin
 - `GET /tape` all-time mid series plus fill marks per coin
+- `GET /usage` persistent model usage and confirmed/estimated costs per coin
 - `GET /events` SSE: `snapshot` on connect (`historyByCoin`, `tapeByCoin`), then `block`, `quote`, `fill` keyed by coin
 
 ## Layout

@@ -1,7 +1,7 @@
 import { config } from "./config";
 import { bpsBetween, snapshotIndicators, venueFeatures } from "./indicators";
 import type { Market } from "./market";
-import type { Model, ModelDecision, TradeState } from "./model";
+import { jevQuestions, marketFacing, type Model, type ModelDecision, type ModelUsage, type TradeState } from "./model";
 import type { PaperAccount } from "./paper";
 import { planQuote, type QuotePlan } from "./plan";
 import { aggregateFills, emptySummary, takeLiveFills, takeSimFills, type Resting, type TradeFeed } from "./trades";
@@ -123,30 +123,52 @@ export class Trader {
         return;
       }
       const state = this.buildState(block, book);
+      const requestId = this.paper && this.model.name === "jev" ? crypto.randomUUID() : undefined;
+      if (requestId) {
+        const estimate = Math.ceil(JSON.stringify({ state: marketFacing(state), questions: jevQuestions(state) }).length / 4) * config.modelInputUsdPerMTok / 1e6;
+        this.paper!.chargeModel(estimate, {
+          requestId, provider: config.jevProvider, modelId: config.jevModelId,
+          status: "pending", costSource: "estimated",
+        });
+      }
+      const metered = (usage: ModelUsage) => {
+        if (!requestId || !this.paper) return;
+        const patch = {
+          ...(usage.generationId !== undefined ? { generationId: usage.generationId } : {}),
+          ...(usage.inputTokens !== undefined ? { inputTokens: usage.inputTokens } : {}),
+          ...(usage.outputTokens !== undefined ? { outputTokens: usage.outputTokens } : {}),
+        };
+        this.paper.updateModelCharge(requestId, patch);
+        if (usage.inputTokens != null) this.paper.updateModelEstimate(requestId,
+          (usage.inputTokens * config.modelInputUsdPerMTok + (usage.outputTokens ?? 0) * config.modelOutputUsdPerMTok) / 1e6);
+      };
       let decision: ModelDecision;
       try {
-        decision = await this.model.decide(state);
+        decision = await this.model.decide(state, { onUsage: metered });
       } catch (e) {
         const msg = (e as Error).message;
         if (jevUnavailable(e)) this.jevPauseUntil = Date.now() + JEV_PAUSE_MS;
         console.error(`tick ${block}:`, msg);
         if (this.paper) {
-          // Failed requests may still be billed; token usage is unavailable on this path.
-          const estimate = this.model.name === "jev" ? Math.ceil(JSON.stringify(state).length / 4) * config.modelInputUsdPerMTok / 1e6 : 0;
-          this.paper.chargeModel(estimate);
-          this.paper.record("model-error", { block, state, estimatedUsd: estimate, reason: "Provider request or response failed" });
+          if (requestId) this.paper.updateModelCharge(requestId, { status: "failed" });
+          this.paper.record("model-error", { block, state, requestId, reason: "Provider request or response failed" });
         }
         this.markLate(block, book, timing);
         this.enqueueStandDown();
         return;
       }
       this.totals.decisions++;
-      const cost = this.model.name === "jev" ? decision.modelCostUsd ?? (
+      const cost = this.model.name === "jev" ? (
         decision.inputTokens * config.modelInputUsdPerMTok + (decision.outputTokens ?? 0) * config.modelOutputUsdPerMTok
       ) / 1e6 : 0;
       if (this.paper) {
-        this.paper.chargeModel(cost);
-        this.paper.record("decision", { block, state, decision });
+        if (requestId) {
+          metered({ generationId: decision.generationId,
+            inputTokens: decision.audit ? decision.audit.usage.inputTokens : decision.inputTokens,
+            outputTokens: decision.audit ? decision.audit.usage.outputTokens : decision.outputTokens });
+          this.paper.updateModelCharge(requestId, { status: "success" });
+        }
+        this.paper.record("decision", { block, state, decision, requestId });
         this.syncFromPaper();
       } else this.totals.jevUsd += cost;
       const plan = planQuote({
@@ -433,6 +455,7 @@ export class Trader {
     t.gasSz = book.mid ? t.gasUsd / book.mid : 0;
     const a = this.market.account;
     const paper = this.paper?.snapshot(book.mid);
+    const usage = this.paper?.usage;
     const unrealized = a ? a.unrealizedUsd : this.unrealizedUsd(book.mid);
     t.pnlUsd = paper?.pnlUsd ?? t.realizedUsd + unrealized - t.gasUsd;
     t.pnlSz = t.pnlUsd / book.mid;
@@ -473,7 +496,7 @@ export class Trader {
         initialUsd: paper.initialUsd, equityUsd: paper.equityUsd, availableUsd: available!,
         feesUsd: paper.feesUsd, fundingUsd: paper.fundingUsd, modelUsd: paper.modelUsd,
         drawdownUsd: paper.drawdownUsd, maxPositionUsd: config.paperMaxPositionUsd, maxLossUsd: config.paperMaxLossUsd,
-        halted: paper.halted, modelCostEstimated: true,
+        halted: paper.halted, modelCostEstimated: (usage?.allTime.estimatedRequests ?? 0) > 0, usage,
       } } : {}),
     };
     const index = this.history.findIndex((e) => e.block === block);

@@ -1,6 +1,6 @@
 import { config } from "./config";
 import { clipHistory, clipSnapshotTape, clipTape, TAPE_MIDS } from "./snapshot";
-import type { BlockEvent, Fill, Meta, PricePoint, Quote } from "./types";
+import type { BlockEvent, Fill, Meta, PricePoint, Quote, UsageBalance } from "./types";
 
 const CORS = { "access-control-allow-origin": "*", "access-control-allow-headers": "*" };
 const SNAP_MS = 400;
@@ -29,7 +29,7 @@ function jsonMaybeGzip(req: Request, body: unknown, status = 200) {
   });
 }
 
-export type SleeveView = { coin: string; history: () => BlockEvent[]; tape: () => PricePoint[] };
+export type SleeveView = { coin: string; history: () => BlockEvent[]; tape: () => PricePoint[]; usage?: () => UsageBalance | null };
 
 /** GET /snapshot, GET /history, GET /tape, GET /events SSE */
 export function startServer(meta: Meta, sleeves: SleeveView[]) {
@@ -85,6 +85,7 @@ export function startServer(meta: Meta, sleeves: SleeveView[]) {
       if (pathname === "/snapshot") return jsonMaybeGzip(req, snap().json);
       if (pathname === "/history") return jsonMaybeGzip(req, historyByCoin());
       if (pathname === "/tape") return jsonMaybeGzip(req, tapeByCoin());
+      if (pathname === "/usage") return jsonMaybeGzip(req, Object.fromEntries(sleeves.map((s) => [s.coin, s.usage?.() ?? null])));
       if (pathname === "/events") {
         const lite = url.searchParams.get("lite") === "1";
         const stream = new ReadableStream<Uint8Array>({

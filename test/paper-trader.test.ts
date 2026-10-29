@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { config } from "../src/config";
 import { Market } from "../src/market";
 import type { Feed } from "../src/feed";
-import type { Model, ModelDecision, TradeState } from "../src/model";
+import type { Model, ModelContext, ModelDecision, TradeState } from "../src/model";
 import { PaperAccount } from "../src/paper";
 import { Trader } from "../src/trader";
 import { TradeFeed } from "../src/trades";
@@ -52,7 +52,7 @@ class PaperModel implements Model {
   calls = 0;
   delayMs = 0;
   state: TradeState | null = null;
-  async decide(state: TradeState): Promise<ModelDecision> {
+  async decide(state: TradeState, _context?: ModelContext): Promise<ModelDecision> {
     this.calls++;
     this.state = state;
     if (this.delayMs) await Bun.sleep(this.delayMs);
@@ -86,13 +86,35 @@ test("paper trading needs no wallet balance and deducts fees and model costs", a
     expect(account.state.modelUsd).toBeGreaterThan(0);
     expect(events.at(-1)?.accountValue).toBeCloseTo(account.snapshot(100).equityUsd);
     expect(events.at(-1)?.paper?.availableUsd).toBeLessThan(200);
-    expect(JSON.stringify(events)).not.toContain('"inputTokens"');
+    expect(JSON.stringify(events)).not.toContain('"audit"');
+    expect(JSON.stringify(events)).not.toContain('"requestId"');
+    expect(events.at(-1)?.paper?.usage?.allTime.inputTokens).toBe(2000);
     expect(account.recent("decision", 10)).toHaveLength(2);
     model.intent = "close";
     await trader.onBlock(3);
     await trader.settled();
     expect(account.state.positionSz).toBe(0);
     expect(account.state.realizedUsd).toBeLessThan(0);
+  } finally { account.close(); }
+});
+
+test("late usage metadata attaches to a failed request without creating another charge", async () => {
+  const { trader, model, account } = desk();
+  let completed: Promise<void> = Promise.resolve();
+  model.decide = async (_state, context) => {
+    completed = new Promise<void>((resolve) => setTimeout(() => {
+      context?.onUsage({ generationId: "gen_late12345678", inputTokens: 100, outputTokens: 10 });
+      resolve();
+    }, 5));
+    throw new Error("Request timed out");
+  };
+  try {
+    await trader.onBlock(1);
+    await completed;
+    await trader.settled();
+    expect(account.usage.allTime).toMatchObject({ requests: 1, failed: 1, inputTokens: 100, outputTokens: 10 });
+    expect(account.pendingModelCharges()).toHaveLength(1);
+    expect(account.state.modelUsd).toBeCloseTo(110 * config.modelInputUsdPerMTok / 1e6, 10);
   } finally { account.close(); }
 });
 

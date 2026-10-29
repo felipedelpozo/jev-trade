@@ -79,11 +79,22 @@ export interface ModelDecision {
   modelCostUsd?: number;
   modelCostSource?: string;
   audit?: JevAudit;
+  generationId?: string;
+}
+
+export interface ModelUsage {
+  generationId?: string;
+  inputTokens?: number;
+  outputTokens?: number;
+}
+
+export interface ModelContext {
+  onUsage: (usage: ModelUsage) => void;
 }
 
 export interface Model {
   readonly name: string;
-  decide(state: TradeState): Promise<ModelDecision>;
+  decide(state: TradeState, context?: ModelContext): Promise<ModelDecision>;
 }
 
 /** Book, tape, and the open position. Wallet fills and lifetime PnL stay off this object. */
@@ -479,25 +490,15 @@ interface JevCall {
   outputTokens?: number;
   modelCostUsd?: number;
   modelCostSource?: string;
+  generationId?: string;
 }
 
 function tokenCount(value: unknown): number | undefined {
   return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : undefined;
 }
 
-function gatewayCost(providerMetadata: unknown): { modelCostUsd: number; modelCostSource: string } | undefined {
-  if (!isRecord(providerMetadata)) return undefined;
-  const gateway = providerMetadata.gateway;
-  if (!isRecord(gateway)) return undefined;
-  const rawCost = gateway.cost;
-  const cost = typeof rawCost === "number"
-    ? rawCost
-    : typeof rawCost === "string" && rawCost.trim() !== ""
-      ? Number(rawCost)
-      : NaN;
-  return Number.isFinite(cost) && cost >= 0
-    ? { modelCostUsd: cost, modelCostSource: "providerMetadata.gateway.cost" }
-    : undefined;
+export function generationId(value: unknown): string | undefined {
+  return typeof value === "string" && /^gen_[a-zA-Z0-9_-]{8,128}$/.test(value) ? value : undefined;
 }
 
 function withDeadline<T>(p: Promise<T>, ms: number): Promise<T> {
@@ -510,7 +511,7 @@ function withDeadline<T>(p: Promise<T>, ms: number): Promise<T> {
   });
 }
 
-async function callJev(state: TradeState): Promise<JevCall> {
+async function callJev(state: TradeState, context?: ModelContext): Promise<JevCall> {
   const seen = marketFacing(state);
   const qs = jevQuestions(state);
   const run = async () => {
@@ -520,17 +521,23 @@ async function callJev(state: TradeState): Promise<JevCall> {
         state: seen as never,
         questions: qs,
         maxRetries: 0,
+        providerOptions: { gateway: { user: "jev-trade", tags: ["jev-trade", "paper", state.coin] } },
       });
+      const metadata = r.providerMetadata?.gateway;
+      const usage: ModelUsage = {
+        generationId: generationId(isRecord(metadata) ? metadata.generationId : undefined),
+        inputTokens: tokenCount(r.usage?.inputTokens),
+        outputTokens: tokenCount(r.usage?.outputTokens),
+      };
+      // Persist billing metadata even if validation fails or the decision already timed out.
+      context?.onUsage(usage);
       const answers = validateJevAnswers(r.answers, state.position.side, state.maxLeverage);
-      const cost = gatewayCost(r.providerMetadata);
       return {
         answers,
         state: seen,
         questions: qs,
         modelId: r.response.modelId,
-        inputTokens: tokenCount(r.usage?.inputTokens),
-        outputTokens: tokenCount(r.usage?.outputTokens),
-        ...cost,
+        ...usage,
       };
     }
     const r = await typesafeClient().systemOne(
@@ -541,6 +548,7 @@ async function callJev(state: TradeState): Promise<JevCall> {
       },
       { retry: { maxRetries: 0 } },
     );
+    context?.onUsage({ inputTokens: tokenCount(r.usage.input_tokens), outputTokens: tokenCount(r.usage.output_tokens) });
     const answers = validateJevAnswers(r.answers, state.position.side, state.maxLeverage);
     return {
       answers,
@@ -551,16 +559,22 @@ async function callJev(state: TradeState): Promise<JevCall> {
       outputTokens: tokenCount(r.usage.output_tokens),
     };
   };
-  return withDeadline(run(), JEV_DEADLINE_MS);
+  return withDeadline(run().catch((error: unknown) => {
+    if (isRecord(error)) {
+      const id = generationId(error.generationId);
+      if (id) context?.onUsage({ generationId: id });
+    }
+    throw error;
+  }), JEV_DEADLINE_MS);
 }
 
 /** Real Jev. JEV_PROVIDER selects official TypeSafe or Vercel AI Gateway. */
 export class JevModel implements Model {
   readonly name = "jev";
 
-  async decide(state: TradeState): Promise<ModelDecision> {
+  async decide(state: TradeState, context?: ModelContext): Promise<ModelDecision> {
     const t0 = performance.now();
-    const r = await callJev(state);
+    const r = await callJev(state, context);
     const decision = decideFromJevAnswers(
       r.answers,
       state.position.side,
@@ -572,6 +586,7 @@ export class JevModel implements Model {
     decision.outputTokens = r.outputTokens;
     decision.modelCostUsd = r.modelCostUsd;
     decision.modelCostSource = r.modelCostSource;
+    decision.generationId = r.generationId;
     decision.audit = createJevAudit({
       provider: config.jevProvider,
       modelId: r.modelId,

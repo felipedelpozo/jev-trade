@@ -112,6 +112,28 @@ export interface Totals {
   pnlPct: number;
 }
 
+export interface UsagePeriod {
+  requests: number;
+  pending: number;
+  successful: number;
+  failed: number;
+  unknownStatus: number;
+  inputTokens: number;
+  outputTokens: number;
+  reportedUsd: number;
+  estimatedUsd: number;
+  totalUsd: number;
+  reportedRequests: number;
+  estimatedRequests: number;
+  unknownTokenRequests: number;
+}
+
+export interface UsageBalance {
+  since: number | null;
+  allTime: UsagePeriod;
+  today: UsagePeriod;
+}
+
 export interface PaperSummary {
   initialUsd: number;
   equityUsd: number;
@@ -124,6 +146,7 @@ export interface PaperSummary {
   maxLossUsd: number;
   halted: boolean;
   modelCostEstimated: boolean;
+  usage?: UsageBalance;
 }
 
 export interface BlockEvent {

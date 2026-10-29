@@ -32,19 +32,46 @@ function viewMeta(meta: Meta | null, coin: string): Meta | null {
 }
 
 function SimulationSummary({ paper }: { paper: PaperMetrics }) {
-  const usd = (value: number) => `$${value.toFixed(2)}`;
-  const costUsd = (value: number) => `$${value.toFixed(6)}`;
+  const usd = (value: number) => `${value < 0 ? "-" : "+"}$${Math.abs(value).toFixed(6)}`;
+  const period = paper.usage?.allTime;
+  const today = paper.usage?.today;
+  const periodRows = [
+    ["Requests", period?.requests ?? 0, today?.requests ?? 0],
+    ["Input tokens", period?.inputTokens ?? 0, today?.inputTokens ?? 0],
+    ["Output tokens", period?.outputTokens ?? 0, today?.outputTokens ?? 0],
+    ["Confirmed Gateway cost", `$${(period?.reportedUsd ?? 0).toFixed(6)}`, `$${(today?.reportedUsd ?? 0).toFixed(6)}`],
+    ["Unreconciled / estimated cost", `$${(period?.estimatedUsd ?? paper.modelUsd).toFixed(6)}`, `$${(today?.estimatedUsd ?? 0).toFixed(6)}`],
+    ["Total AI cost", `$${(period?.totalUsd ?? paper.modelUsd).toFixed(6)}`, `$${(today?.totalUsd ?? 0).toFixed(6)}`],
+  ] as const;
   return (
-    <section className={styles.simulation} aria-label="Paper simulation summary">
-      <div className={styles.simulationTitle}>SIMULATION <span>(real market data)</span></div>
+    <section className={styles.simulation} aria-label="Paper simulation and usage summary">
+      <div className={styles.simulationTitle}>SIMULATION <span>(real market data, hypothetical trading)</span></div>
       <div className={styles.simulationStats}>
         <span><b>equity</b> {usd(paper.equityUsd)}</span>
         <span><b>available</b> {usd(paper.availableUsd)}</span>
-        <span><b>net PnL</b> {paper.netPnlUsd >= 0 ? "+" : "-"}{usd(Math.abs(paper.netPnlUsd))}</span>
-        <span><b>fees (estimated)</b> {usd(paper.feesUsd)}</span>
-        <span><b>funding (estimated)</b> {usd(paper.fundingUsd)}</span>
-        <span><b>AI costs{paper.modelCostEstimated ? " (estimated)" : ""}</b> {costUsd(paper.modelUsd)}</span>
-        <span><b>drawdown</b> {usd(paper.drawdownUsd)}</span>
+        <span><b>drawdown</b> {usd(-paper.drawdownUsd)}</span>
+      </div>
+      <div className={styles.usageGrid}>
+        <div>
+          <h2>AI usage</h2>
+          <table><caption className={styles.srOnly}>AI usage by period</caption><thead><tr><th scope="col">Metric</th><th scope="col">Today (UTC)</th><th scope="col">Since account start</th></tr></thead><tbody>
+            {periodRows.map(([label, allTime, current]) => <tr key={label}><th scope="row">{label}</th><td>{typeof current === "number" ? current.toLocaleString() : current}</td><td>{typeof allTime === "number" ? allTime.toLocaleString() : allTime}</td></tr>)}
+          </tbody></table>
+          {period ? <div className={styles.usageMeta}>Confirmed {period.reportedRequests}/{period.requests} requests, unknown tokens {period.unknownTokenRequests}, pending {period.pending}, failed {period.failed}</div> : <div className={styles.usageMeta}>No usage ledger reported yet.</div>}
+        </div>
+        <div>
+          <h2>Paper P&amp;L (account period)</h2>
+          <div className={styles.pnlRows}>
+            <span><b>Gross realized trade PnL</b> {usd(paper.grossRealizedUsd)}</span>
+            <span><b>Unrealized open PnL</b> {usd(paper.unrealizedUsd)}</span>
+            <span><b>Simulated fees</b> {usd(-paper.feesUsd)}</span>
+            <span><b>Estimated funding</b> {usd(-paper.fundingUsd)}</span>
+            <span><b>AI costs</b> {usd(-(period?.totalUsd ?? paper.modelUsd))}</span>
+            <span className={styles.pnlTotal}><b>Net realized after all costs</b> {usd(paper.netRealizedAfterCostsUsd)}</span>
+            <span className={styles.pnlTotal}><b>Net including open position</b> {usd(paper.netIncludingOpenUsd)}</span>
+          </div>
+          <div className={styles.usageMeta}>Trading figures are simulated. Earlier requests without billing IDs remain estimated. {period && period.estimatedRequests > 0 ? "Net result is provisional while AI charges remain unreconciled." : "Fees and funding remain simulation assumptions."}</div>
+        </div>
       </div>
     </section>
   );

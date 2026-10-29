@@ -1,7 +1,7 @@
 import { Database } from "bun:sqlite";
-import type { Fill } from "./types";
+import type { Fill, UsageBalance, UsagePeriod } from "./types";
 
-export type { Fill } from "./types";
+export type { Fill, UsageBalance, UsagePeriod } from "./types";
 
 export interface PaperOptions {
   initialUsd: number;
@@ -45,6 +45,30 @@ export interface PaperAuditRow {
   at: number;
 }
 
+export interface ModelCharge {
+  requestId: string;
+  provider: string;
+  modelId: string;
+  status: "pending" | "success" | "failed";
+  inputTokens?: number;
+  outputTokens?: number;
+  costSource: "reported" | "estimated";
+  generationId?: string;
+  at?: number;
+}
+
+export interface ModelChargePatch {
+  generationId?: string;
+  inputTokens?: number;
+  outputTokens?: number;
+  status?: "pending" | "success" | "failed";
+}
+
+export interface PendingModelCharge {
+  requestId: string;
+  generationId: string;
+}
+
 interface StoredRow {
   key: string;
   value: string;
@@ -54,10 +78,21 @@ interface AuditPayload {
   [key: string]: unknown;
 }
 
+interface ModelAuditRow {
+  id: number;
+  amount: number;
+  payload: Record<string, unknown>;
+  usage: ModelCharge;
+}
+
 const META_TABLE = "paper_meta";
 const AUDIT_TABLE = "paper_audit";
 const VERSION = 1;
 const POSITION_EPSILON = 1e-12;
+const MONEY_EPSILON = 1e-12;
+const MAX_USAGE_STRING_LENGTH = 256;
+const DAY_MS = 86_400_000;
+const MAX_DATE_MS = 8_640_000_000_000_000;
 const SENSITIVE_KEY = /(?:api[_-]?key|access[_-]?token|refresh[_-]?token|private[_-]?key|secret|password|mnemonic|seed)/i;
 
 function numberValue(name: string, value: unknown, min = -Infinity): number {
@@ -69,6 +104,49 @@ function numberValue(name: string, value: unknown, min = -Infinity): number {
 
 function positive(name: string, value: unknown): number {
   return numberValue(name, value, Number.MIN_VALUE);
+}
+
+function timestamp(name: string, value: unknown): number {
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0 || value > MAX_DATE_MS) {
+    throw new TypeError(`${name} must be a non-negative safe integer timestamp`);
+  }
+  return value;
+}
+
+function boundedString(name: string, value: unknown): string {
+  if (typeof value !== "string" || value.length === 0 || value.length > MAX_USAGE_STRING_LENGTH || value.trim().length === 0) {
+    throw new TypeError(`${name} must be a non-empty string of at most ${MAX_USAGE_STRING_LENGTH} characters`);
+  }
+  return value;
+}
+
+function tokenCount(name: string, value: unknown): number {
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) {
+    throw new TypeError(`${name} must be a non-negative safe integer`);
+  }
+  return value;
+}
+
+function modelCharge(value: ModelCharge, includeAt = true): ModelCharge {
+  if (!value || typeof value !== "object") throw new TypeError("usage is required");
+  const charge: ModelCharge = {
+    requestId: boundedString("usage.requestId", value.requestId),
+    provider: boundedString("usage.provider", value.provider),
+    modelId: boundedString("usage.modelId", value.modelId),
+    status: value.status === "pending" || value.status === "success" || value.status === "failed" ? value.status : (() => { throw new TypeError("usage.status must be pending, success, or failed"); })(),
+    costSource: value.costSource === "reported" || value.costSource === "estimated" ? value.costSource : (() => { throw new TypeError("usage.costSource must be reported or estimated"); })(),
+  };
+  if (value.inputTokens !== undefined) charge.inputTokens = tokenCount("usage.inputTokens", value.inputTokens);
+  if (value.outputTokens !== undefined) charge.outputTokens = tokenCount("usage.outputTokens", value.outputTokens);
+  if (value.generationId !== undefined) charge.generationId = boundedString("usage.generationId", value.generationId);
+  if (includeAt && value.at !== undefined) charge.at = timestamp("usage.at", value.at);
+  return charge;
+}
+
+function usageFieldsEqual(a: ModelCharge, b: ModelCharge): boolean {
+  return a.requestId === b.requestId && a.provider === b.provider && a.modelId === b.modelId
+    && a.status === b.status && a.inputTokens === b.inputTokens && a.outputTokens === b.outputTokens
+    && a.costSource === b.costSource && a.generationId === b.generationId;
 }
 
 function json(value: unknown): string {
@@ -167,6 +245,9 @@ export class PaperAccount {
       if (hasMeta !== hasAudit) throw new Error("corrupt paper account schema");
       this.db.exec(`CREATE TABLE IF NOT EXISTS ${META_TABLE} (key TEXT PRIMARY KEY NOT NULL, value TEXT NOT NULL);`);
       this.db.exec(`CREATE TABLE IF NOT EXISTS ${AUDIT_TABLE} (id INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT NOT NULL, payload TEXT NOT NULL, at INTEGER NOT NULL);`);
+      this.db.exec(`CREATE INDEX IF NOT EXISTS idx_paper_audit_kind_at ON ${AUDIT_TABLE} (kind, at);`);
+      this.db.exec(`CREATE INDEX IF NOT EXISTS idx_paper_audit_model_request_id ON ${AUDIT_TABLE} (json_extract(payload, '$.requestId')) WHERE kind = 'model';`);
+      this.db.exec(`CREATE INDEX IF NOT EXISTS idx_paper_audit_model_pending ON ${AUDIT_TABLE} (at, id) WHERE kind = 'model' AND json_extract(payload, '$.costSource') = 'estimated' AND json_extract(payload, '$.generationId') IS NOT NULL;`);
       const rows = this.db.query(`SELECT key, value FROM ${META_TABLE}`).all() as StoredRow[];
       if (rows.length === 0) {
         const auditCount = this.db.query(`SELECT COUNT(*) AS count FROM ${AUDIT_TABLE}`).get() as { count: number };
@@ -294,10 +375,154 @@ export class PaperAccount {
     this.mutate("fill", { side: fill.side, size, price, leverage: lev, realizedUsd: realized, feeUsd: fee }, next);
   }
 
-  chargeModel(usd: number): void {
+  chargeModel(usd: number, usage?: ModelCharge): void {
     this.assertOpen();
     const charge = numberValue("usd", usd, 0);
-    this.mutate("model", { usd: charge }, { ...this.current, modelUsd: this.current.modelUsd + charge });
+    const normalized = usage === undefined ? undefined : modelCharge(usage);
+    const at = normalized?.at ?? Date.now();
+    const payload = normalized === undefined ? { usd: charge } : { usd: charge, ...normalized };
+    const payloadJson = json(payload);
+    const next = stateFrom({ ...this.current, modelUsd: this.current.modelUsd + charge });
+    let duplicate = false;
+    const tx = this.db.transaction(() => {
+      if (normalized !== undefined) {
+        const row = this.db.query(`SELECT payload FROM ${AUDIT_TABLE} WHERE kind = 'model' AND json_extract(payload, '$.requestId') = ? ORDER BY id ASC LIMIT 1`).get(normalized.requestId) as { payload: string } | null;
+        if (row) {
+          let existing: unknown;
+          try {
+            existing = JSON.parse(row.payload);
+          } catch {
+            throw new Error("corrupt paper account audit");
+          }
+          if (!existing || typeof existing !== "object" || Array.isArray(existing)) throw new Error("corrupt paper account audit");
+          const item = existing as Record<string, unknown>;
+          const existingUsage = modelCharge(item as unknown as ModelCharge, false);
+          if (item.usd === charge && usageFieldsEqual(existingUsage, normalized)) {
+            duplicate = true;
+            return;
+          }
+          throw new Error("conflicting model charge requestId");
+        }
+      }
+      this.db.query(`UPDATE ${META_TABLE} SET value = ? WHERE key = 'state'`).run(stateJson(next));
+      this.db.query(`INSERT INTO ${AUDIT_TABLE} (kind, payload, at) VALUES (?, ?, ?)`).run("model", payloadJson, at);
+    });
+    tx();
+    if (!duplicate) this.current = next;
+  }
+
+  get usage(): UsageBalance {
+    return this.usageBalance();
+  }
+
+  usageBalance(now = Date.now()): UsageBalance {
+    this.assertOpen();
+    const currentTime = timestamp("now", now);
+    const currentDate = new Date(currentTime);
+    const dayStart = Date.UTC(currentDate.getUTCFullYear(), currentDate.getUTCMonth(), currentDate.getUTCDate());
+    const aggregate = (where = "", ...params: number[]): { since: number | null; period: UsagePeriod } => {
+      const row = this.db.query(`
+        SELECT MIN(at) AS since,
+          COUNT(*) AS requests,
+          COALESCE(SUM(CASE WHEN json_extract(payload, '$.status') = 'pending' THEN 1 ELSE 0 END), 0) AS pending,
+          COALESCE(SUM(CASE WHEN json_extract(payload, '$.status') = 'success' THEN 1 ELSE 0 END), 0) AS successful,
+          COALESCE(SUM(CASE WHEN json_extract(payload, '$.status') = 'failed' THEN 1 ELSE 0 END), 0) AS failed,
+          COALESCE(SUM(CASE WHEN json_extract(payload, '$.status') IS NULL THEN 1 ELSE 0 END), 0) AS unknownStatus,
+          COALESCE(SUM(COALESCE(json_extract(payload, '$.inputTokens'), 0)), 0) AS inputTokens,
+          COALESCE(SUM(COALESCE(json_extract(payload, '$.outputTokens'), 0)), 0) AS outputTokens,
+          COALESCE(SUM(CASE WHEN json_extract(payload, '$.costSource') = 'reported' THEN json_extract(payload, '$.usd') ELSE 0 END), 0) AS reportedUsd,
+          COALESCE(SUM(CASE WHEN json_extract(payload, '$.costSource') = 'reported' THEN 0 ELSE json_extract(payload, '$.usd') END), 0) AS estimatedUsd,
+          COALESCE(SUM(json_extract(payload, '$.usd')), 0) AS totalUsd,
+          COALESCE(SUM(CASE WHEN json_extract(payload, '$.costSource') = 'reported' THEN 1 ELSE 0 END), 0) AS reportedRequests,
+          COALESCE(SUM(CASE WHEN json_extract(payload, '$.costSource') = 'reported' THEN 0 ELSE 1 END), 0) AS estimatedRequests,
+          COALESCE(SUM(CASE WHEN json_extract(payload, '$.inputTokens') IS NULL OR json_extract(payload, '$.outputTokens') IS NULL THEN 1 ELSE 0 END), 0) AS unknownTokenRequests
+        FROM ${AUDIT_TABLE} WHERE kind = 'model' ${where}`).get(...params) as Record<string, number | null>;
+      const value = (name: string): number => Number(row[name] ?? 0);
+      return {
+        since: row.since === null ? null : timestamp("audit.at", Number(row.since)),
+        period: {
+          requests: value("requests"), pending: value("pending"), successful: value("successful"), failed: value("failed"), unknownStatus: value("unknownStatus"),
+          inputTokens: value("inputTokens"), outputTokens: value("outputTokens"), reportedUsd: value("reportedUsd"), estimatedUsd: value("estimatedUsd"), totalUsd: value("totalUsd"),
+          reportedRequests: value("reportedRequests"), estimatedRequests: value("estimatedRequests"), unknownTokenRequests: value("unknownTokenRequests"),
+        },
+      };
+    };
+    const allTime = aggregate();
+    const today = aggregate("AND at >= ? AND at < ?", dayStart, dayStart + DAY_MS);
+    return { since: allTime.since, allTime: allTime.period, today: today.period };
+  }
+
+  updateModelCharge(requestId: string, patch: ModelChargePatch): void {
+    this.assertOpen();
+    const id = boundedString("requestId", requestId);
+    if (!patch || typeof patch !== "object" || Array.isArray(patch)) throw new TypeError("patch is required");
+    const keys = Object.keys(patch);
+    if (keys.some((key) => key !== "generationId" && key !== "inputTokens" && key !== "outputTokens" && key !== "status")) {
+      throw new TypeError("unsupported model charge patch");
+    }
+    if (patch.generationId !== undefined) boundedString("patch.generationId", patch.generationId);
+    if (patch.inputTokens !== undefined) tokenCount("patch.inputTokens", patch.inputTokens);
+    if (patch.outputTokens !== undefined) tokenCount("patch.outputTokens", patch.outputTokens);
+    if (patch.status !== undefined && patch.status !== "pending" && patch.status !== "success" && patch.status !== "failed") throw new TypeError("patch.status must be pending, success, or failed");
+    const row = this.modelRow(id);
+    if (!row) throw new Error("model charge requestId not found");
+    const next = modelCharge({ ...row.usage, ...patch });
+    if (usageFieldsEqual(next, row.usage)) return;
+    const payload = { ...row.payload, ...patch };
+    const payloadJson = json(payload);
+    const tx = this.db.transaction(() => {
+      this.db.query(`UPDATE ${AUDIT_TABLE} SET payload = ? WHERE id = ? AND kind = 'model'`).run(payloadJson, row.id);
+      this.db.query(`INSERT INTO ${AUDIT_TABLE} (kind, payload, at) VALUES (?, ?, ?)`)
+        .run("model-update", json({ requestId: id, fields: keys }), Date.now());
+    });
+    tx();
+  }
+
+  reconcileModelCharge(requestId: string, actualUsd: number): void {
+    this.setModelCharge(requestId, actualUsd, "reported");
+  }
+
+  updateModelEstimate(requestId: string, estimatedUsd: number): void {
+    this.setModelCharge(requestId, estimatedUsd, "estimated");
+  }
+
+  private setModelCharge(requestId: string, actualUsd: number, source: "reported" | "estimated"): void {
+    this.assertOpen();
+    const id = boundedString("requestId", requestId);
+    const actual = numberValue("actualUsd", actualUsd, 0);
+    const row = this.modelRow(id);
+    if (!row) throw new Error("model charge requestId not found");
+    if (row.payload.costSource === "reported") {
+      if (source === "estimated" || row.amount === actual) return;
+      throw new Error("conflicting model charge reconciliation");
+    }
+    if (row.amount === actual && row.payload.costSource === source) return;
+    const delta = actual - row.amount;
+    const modelUsd = this.current.modelUsd + delta;
+    const next = stateFrom({ ...this.current, modelUsd: Math.abs(modelUsd) < MONEY_EPSILON ? 0 : modelUsd });
+    const payloadJson = json({ ...row.payload, usd: actual, costSource: source });
+    const tx = this.db.transaction(() => {
+      this.db.query(`UPDATE ${META_TABLE} SET value = ? WHERE key = 'state'`).run(stateJson(next));
+      this.db.query(`UPDATE ${AUDIT_TABLE} SET payload = ? WHERE id = ? AND kind = 'model'`).run(payloadJson, row.id);
+      this.db.query(`INSERT INTO ${AUDIT_TABLE} (kind, payload, at) VALUES (?, ?, ?)`)
+        .run("model-reconcile", json({ requestId: id, fromUsd: row.amount, toUsd: actual, deltaUsd: delta, source }), Date.now());
+    });
+    tx();
+    this.current = next;
+  }
+
+  pendingModelCharges(limit = 20): PendingModelCharge[] {
+    this.assertOpen();
+    if (!Number.isInteger(limit) || limit < 1) throw new TypeError("limit must be a positive integer");
+    const bounded = Math.min(limit, 1_000);
+    const rows = this.db.query(`
+      SELECT json_extract(payload, '$.requestId') AS requestId,
+        json_extract(payload, '$.generationId') AS generationId
+      FROM ${AUDIT_TABLE}
+      WHERE kind = 'model' AND json_extract(payload, '$.costSource') = 'estimated'
+        AND json_extract(payload, '$.generationId') IS NOT NULL
+      ORDER BY at ASC, id ASC LIMIT ?`).all(bounded) as { requestId: unknown; generationId: unknown }[];
+    return rows.map((row) => ({ requestId: boundedString("requestId", row.requestId), generationId: boundedString("generationId", row.generationId) }));
   }
 
   /** Estimates funding over the cursor gap using the supplied rate and mark held constant; it is not venue-settled funding. */
@@ -377,6 +602,21 @@ export class PaperAccount {
     });
     tx();
     this.current = validated;
+  }
+
+  private modelRow(requestId: string): ModelAuditRow | null {
+    const row = this.db.query(`SELECT id, payload FROM ${AUDIT_TABLE} WHERE kind = 'model' AND json_extract(payload, '$.requestId') = ? ORDER BY id ASC LIMIT 1`).get(requestId) as { id: number; payload: string } | null;
+    if (!row) return null;
+    let payload: unknown;
+    try {
+      payload = JSON.parse(row.payload);
+    } catch {
+      throw new Error("corrupt paper account audit");
+    }
+    if (!payload || typeof payload !== "object" || Array.isArray(payload)) throw new Error("corrupt paper account audit");
+    const item = payload as Record<string, unknown>;
+    const usage = modelCharge(item as unknown as ModelCharge, false);
+    return { id: row.id, amount: numberValue("model charge", item.usd, 0), payload: item, usage };
   }
 
   private assertOpen(): void {

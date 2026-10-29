@@ -4,6 +4,7 @@ import { Market } from "./market";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { PaperAccount } from "./paper";
+import { reconcileGatewayUsage, type BillingRetries } from "./billing";
 import { createModel } from "./model";
 import { loadSleeves } from "./sleeves";
 import { startServer, type SleeveView } from "./server";
@@ -88,7 +89,7 @@ for (const spec of specs) {
           dir: p.dir,
         }, p.ts);
       };
-      views.push({ coin: spec.coin, history: () => trader.history, tape: () => trader.tape });
+      views.push({ coin: spec.coin, history: () => trader.history, tape: () => trader.tape, usage: () => paper?.usage ?? null });
       meta.sleeves.push({ coin: spec.coin, pair: spec.pair, label: spec.label, wallet: market.address, dryRun: !market.wallet });
       if (spec === first) {
         meta.wallet = market.address;
@@ -121,12 +122,30 @@ if (!views.length) throw new Error("no sleeves started");
 server = startServer(meta, views);
 for (const start of starters) start();
 
+const billingRetries: BillingRetries = new Map();
+let billingBusy = false;
+let billingJob = Promise.resolve();
+const pollBilling = () => {
+  if (shuttingDown || billingBusy || config.model !== "jev" || config.jevProvider !== "gateway") return;
+  billingBusy = true;
+  billingJob = (async () => {
+    for (const account of accounts) await reconcileGatewayUsage(account, billingRetries);
+  })().catch((error: unknown) => {
+    console.error("Fatal billing ledger error:", error instanceof Error ? error.message : "unknown error");
+    process.exit(1);
+  }).finally(() => { billingBusy = false; });
+};
+const billingTimer = setInterval(pollBilling, 15000);
+pollBilling();
+
 for (const signal of ["SIGTERM", "SIGINT"] as const) process.on(signal, async () => {
   if (shuttingDown) return;
   shuttingDown = true;
+  clearInterval(billingTimer);
   setTimeout(() => process.exit(1), 10000).unref();
   await Promise.all(inFlight);
   await Promise.all(traders.map((trader) => trader.settled()));
+  await billingJob;
   for (const account of accounts) account.close();
   process.exit(0);
 });
