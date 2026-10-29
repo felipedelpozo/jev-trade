@@ -39,3 +39,11 @@ test("aggregation preserves small BTC fills and their fees", () => {
   expect(fill.size).toBe(0.00001);
   expect(fill.feeUsd).toBe(0.00012);
 });
+
+test("participation fills respect venue lots instead of creating uncloseable BTC dust", () => {
+  const orders = new Map<number, Resting>([[1, { side: "buy", price: 100, size: 0.00001, block: 1 }]]);
+  expect(takeSimFills(orders, [{ block: 2, price: 99, size: 0.00001, side: "sell" }], 0.1, 0.00001)).toHaveLength(0);
+  const fills = takeSimFills(orders, [{ block: 3, price: 99, size: 0.001, side: "sell" }], 0.1, 0.00001);
+  expect(fills[0]?.size).toBe(0.00001);
+  expect(orders.size).toBe(0);
+});

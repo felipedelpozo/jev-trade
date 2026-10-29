@@ -14,6 +14,16 @@ const options: PaperOptions = {
   maxLeverage: 3,
 };
 
+test("decimal partial closes do not leave floating-point phantom exposure", () => {
+  const account = new PaperAccount(":memory:", "BTC", options);
+  account.fill({ side: "buy", size: 0.3, price: 100, orderId: 1, txHash: null, simulated: true });
+  account.fill({ side: "sell", size: 0.1, price: 100, orderId: 2, txHash: null, simulated: true });
+  account.fill({ side: "sell", size: 0.2, price: 100, orderId: 3, txHash: null, simulated: true });
+  expect(account.state.positionSz).toBe(0);
+  expect(account.state.costUsd).toBe(0);
+  account.close();
+});
+
 function fill(side: "buy" | "sell", size: number, price: number, extra: Record<string, unknown> = {}) {
   return { side, size, price, txHash: null, orderId: 1, simulated: true, ...extra } as Parameters<PaperAccount["fill"]>[0];
 }

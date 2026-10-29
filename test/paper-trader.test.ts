@@ -3,7 +3,8 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { config } from "../src/config";
-import type { Market } from "../src/market";
+import { Market } from "../src/market";
+import type { Feed } from "../src/feed";
 import type { Model, ModelDecision, TradeState } from "../src/model";
 import { PaperAccount } from "../src/paper";
 import { Trader } from "../src/trader";
@@ -11,6 +12,13 @@ import { TradeFeed } from "../src/trades";
 import type { BlockEvent, Book, Quote, Side } from "../src/types";
 
 const options = { initialUsd: 200, maxPositionUsd: 100, maxLossUsd: 20, maxLeverage: 1, makerFeeBps: 1.5, takerFeeBps: 4.5 };
+
+test("a simulated exit can flatten fractional fills from a previous version", async () => {
+  const market = new Market({} as Feed, { coin: "BTC", pair: "BTC-USD", label: "BTC" });
+  const quote = await market.send("sell", 0.000145, new PaperMarket().book, [], true, true);
+  expect(quote.status).toBe("sim");
+  expect(quote.size).toBe(0.000145);
+});
 
 class PaperMarket {
   coin = "BTC";

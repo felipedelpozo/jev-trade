@@ -113,8 +113,9 @@ export function takeLiveFills(orders: Map<number, Resting>, raw: MakerFill[]): (
   return out;
 }
 
-export function takeSimFills(orders: Map<number, Resting>, prints: TradePrint[], participation = 1): (Fill & { block: number })[] {
+export function takeSimFills(orders: Map<number, Resting>, prints: TradePrint[], participation = 1, lotSize = 0): (Fill & { block: number })[] {
   if (!Number.isFinite(participation) || participation <= 0 || participation > 1) throw new Error("Invalid fill participation");
+  if (!Number.isFinite(lotSize) || lotSize < 0) throw new Error("Invalid fill lot size");
   const out: (Fill & { block: number })[] = [];
   for (const p of prints) {
     if (!Number.isFinite(p.size) || !Number.isFinite(p.price) || p.size <= 0 || p.price <= 0) continue;
@@ -123,10 +124,12 @@ export function takeSimFills(orders: Map<number, Resting>, prints: TradePrint[],
       if (available <= 0 || p.block < o.block || o.size <= 0 || (o.ts != null && (p.ts == null || p.ts <= o.ts))) continue;
       const hit = o.side === "buy" ? p.side === "sell" && p.price <= o.price : p.side === "buy" && p.price >= o.price;
       if (!hit) continue;
-      const size = Math.min(o.size, available);
+      const rawSize = Math.min(o.size, available);
+      const size = lotSize ? Math.floor(rawSize / lotSize + 1e-9) * lotSize : rawSize;
+      if (size <= 0) continue;
       available -= size;
       o.size -= size;
-      if (o.size <= 1e-9) orders.delete(id);
+      if (o.size <= Math.max(1e-12, lotSize * 1e-9)) orders.delete(id);
       out.push({ side: o.side, size, price: o.price, txHash: null, orderId: id, simulated: true, block: p.block });
     }
   }

@@ -274,7 +274,7 @@ export class Trader {
   private harvest() {
     if (!this.trades) return;
     const prints = this.trades.drainPrints();
-    const fills = this.market.wallet ? takeLiveFills(this.orders, this.trades.drainFills()) : takeSimFills(this.orders, prints, config.paperFillParticipation);
+    const fills = this.market.wallet ? takeLiveFills(this.orders, this.trades.drainFills()) : takeSimFills(this.orders, prints, config.paperFillParticipation, 10 ** -this.market.szDecimals);
     if (!fills.length) return;
     const byBlock = new Map<number, Fill[]>();
     for (const f of fills) {

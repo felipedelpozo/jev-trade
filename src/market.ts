@@ -179,9 +179,10 @@ export class Market {
 
   /** Entries rest post-only. Exits cross as Ioc so they do not wait on a taker. */
   async send(side: Side, sizeSz: number, book: Book, cancel: number[], reduceOnly = false, taker = false): Promise<Quote> {
-    const size = lot(sizeSz, this.szDecimals);
+    // Flatten legacy fractional paper fills exactly; new maker fills respect venue lots.
+    const size = !this.ex && reduceOnly && taker ? sizeSz : lot(sizeSz, this.szDecimals);
     const base: QuoteBase = { side, reduceOnly, capped: false, taker };
-    if (size <= 0) {
+    if (!Number.isFinite(size) || size <= 0) {
       return { ...base, price: 0, size: 0, txHash: null, cancel, status: "reverted", orderId: null };
     }
     const px = taker
