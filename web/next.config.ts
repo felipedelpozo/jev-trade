@@ -8,7 +8,10 @@ const nextConfig: NextConfig = {
   agentRules: false,
   allowedDevOrigins: ["127.0.0.1", "localhost"],
   async redirects() {
-    return [{ source: "/orbit", destination: "/orbit/index.html", permanent: false }];
+    return [
+      { source: "/orbit", destination: "/orbit/index.html", permanent: false },
+      { source: "/black-box", destination: "/black-box/index.html", permanent: false },
+    ];
   },
   // Keep the bot private inside the Compose network while the browser stays same-origin.
   async rewrites() {

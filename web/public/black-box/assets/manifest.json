@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "geometry": "floating-sphere",
+  "states": ["observe", "evaluate", "wait"],
+  "graph": {"observe": ["observe-loop", "observe-to-evaluate", "observe-to-wait"], "evaluate": ["evaluate-loop", "evaluate-to-wait", "evaluate-to-observe"], "wait": ["wait-loop", "wait-to-observe", "wait-to-evaluate"]},
+  "clips": {"observe-loop": {"file": "observe-loop.mp4", "kind": "loop", "duration": 5}, "observe-to-evaluate": {"file": "observe-to-evaluate.mp4", "kind": "transition", "duration": 3}, "observe-to-wait": {"file": "observe-to-wait.mp4", "kind": "transition", "duration": 3}, "evaluate-loop": {"file": "evaluate-loop.mp4", "kind": "loop", "duration": 5}, "evaluate-to-wait": {"file": "evaluate-to-wait.mp4", "kind": "transition", "duration": 3}, "evaluate-to-observe": {"file": "evaluate-to-observe.mp4", "kind": "transition", "duration": 3}, "wait-loop": {"file": "wait-loop.mp4", "kind": "loop", "duration": 5}, "wait-to-observe": {"file": "wait-to-observe.mp4", "kind": "transition", "duration": 3}, "wait-to-evaluate": {"file": "wait-to-evaluate.mp4", "kind": "transition", "duration": 3}},
+  "posters": {"observe": "observe.jpg", "evaluate": "evaluate.jpg", "wait": "wait.jpg"},
+  "provenance": {"provider": "fal.ai", "endpoint": "minimax/h3-max/image-to-video", "generation_manifest": "outputs/jev-black-box/sphere-videos/generation-manifest.json", "normalization": "ffmpeg H.264 yuv420p 1080x1920 30fps silent"}
+}

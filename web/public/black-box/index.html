@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <meta name="theme-color" content="#e9e2d6">
+  <title>Jev Black Box | En directo</title>
+  <link rel="stylesheet" href="/black-box/style.css">
+</head>
+<body>
+  <main class="workspace">
+    <div class="stage-frame">
+      <section class="stage" id="stage" aria-label="Jev Black Box, vista vertical para emisión">
+        <div class="art" aria-hidden="true">
+          <img id="poster" src="/black-box/assets/observe.jpg" alt="">
+          <video id="video-a" muted playsinline preload="auto" disablepictureinpicture></video>
+          <video id="video-b" muted playsinline preload="auto" disablepictureinpicture></video>
+        </div>
+        <header class="stage-header safe-content">
+          <div class="masthead"><span class="wordmark">jev<span class="wordmark-square"></span></span><span class="edition">BLACK BOX / BTC</span><span id="signal" class="signal" data-kind="loading">Conectando</span></div>
+          <h1>Dentro de<br>una decisión.</h1>
+          <nav class="state-steps" aria-label="Estado visual"><span data-state="observe" class="active">Observar</span><i></i><span data-state="evaluate">Evaluar</span><i></i><span data-state="wait">Esperar</span></nav>
+        </header>
+        <div class="market-strip safe-content"><span>BITCOIN / USD</span><strong id="btc-price">—</strong><span id="price-age">Esperando mercado</span></div>
+        <section class="decision safe-content" aria-label="Última decisión de Jev">
+          <p class="overline" id="decision-kicker">UNA IA OBSERVANDO BITCOIN</p>
+          <h2 id="state-title">Observar</h2>
+          <div class="answer"><span id="decision-answer">Esperando la primera lectura</span><span id="probability" title="Probabilidad de la intención devuelta por Jev; no es probabilidad de beneficio">—</span></div>
+          <p id="decision-detail">La esfera representa el estado del bot.</p>
+          <div class="cycle"><div class="cycle-track"><span id="cycle-fill"></span></div><span id="countdown">—</span><span id="next-label">Cadencia del bot</span></div>
+        </section>
+        <section class="ledger safe-content" aria-label="Cuenta simulada">
+          <div class="ledger-top"><div><span class="overline">NETO SIMULADO</span><strong id="net-pnl">—</strong></div><div class="costs"><span id="position">Sin lectura de posición</span><span>IA <b id="ai-cost">—</b></span><span id="cost-coverage">Verificando costes</span></div></div>
+          <div class="chart-caption"><span>BTC / ÚLTIMOS 15 MIN</span><span id="last-time">Sin lectura</span></div>
+          <svg id="chart" viewBox="0 0 740 100" role="img" aria-label="Evolución del precio de BTC en los últimos quince minutos"><path id="chart-line" d=""></path></svg>
+          <div class="ledger-bottom"><span id="request-count">— lecturas</span><span>Comisiones, funding e IA incluidos</span></div>
+        </section>
+        <footer class="stage-footer safe-content"><strong id="account-disclosure">Verificando cuenta</strong><span>No es asesoramiento financiero</span></footer>
+        <div id="notice" class="notice safe-content" role="status" hidden></div>
+        <div class="safe-guides" aria-hidden="true"><div class="safe-guide-top">Interfaz superior de TikTok</div><div class="safe-guide-right">Acciones de TikTok</div><div class="safe-guide-chat">Zona de chat y regalos</div></div>
+      </section>
+    </div>
+    <aside class="controls" aria-label="Preparación de la emisión">
+      <p class="eyebrow">JEV / BROADCAST STUDIO</p><h2>Black Box</h2><p class="intro">Dentro de una decisión.<br>Un mercado real, una cuenta simulada.</p>
+      <div class="control-status"><span id="control-connection" role="status">Conectando al bot</span><small id="revision">Leyendo revisión</small></div>
+      <button id="broadcast" class="primary" type="button">Abrir modo emisión</button>
+      <div class="toggles"><label><input id="motion" type="checkbox" checked> Animación de la esfera</label><label><input id="guides" type="checkbox"> Ver zonas de TikTok</label></div>
+      <button id="resume" type="button" hidden>Reanudar animación</button>
+      <details><summary>Comprobar transiciones</summary><p>Solo cambia la esfera. Los datos de la cuenta permanecen en directo. El modo emisión sale de esta prueba.</p><div class="state-buttons"><button data-preview="observe" type="button">Observar</button><button data-preview="evaluate" type="button">Evaluar</button><button data-preview="wait" type="button">Esperar</button></div><button id="end-preview" type="button">Volver al estado del bot</button><p id="preview-status" role="status">Estado automático</p></details>
+      <section class="setup"><h3>Fuente de navegador en OBS</h3><p>1080 × 1920, 30 FPS. Usa la URL de emisión, sin recortar la escena.</p><label for="broadcast-url">URL de emisión</label><input id="broadcast-url" readonly><button id="copy-url" type="button">Copiar URL</button><p>Sin audio. El vídeo no necesita interacción ni genera inferencias de IA.</p></section>
+      <p class="footnote">La esfera anima la última respuesta recibida. No representa el razonamiento interno de Jev. Las cifras incluyen costes estimados cuando falta confirmación.</p>
+      <a href="/orbit/index.html">Abrir Jev Orbit</a><a href="/">Abrir panel de trading</a>
+      <p class="keys">F: emisión / Esc: controles / M: movimiento</p>
+    </aside>
+  </main>
+  <button id="leave-broadcast" type="button">Salir de emisión</button>
+  <script type="module" src="/black-box/app.js"></script>
+</body>
+</html>
