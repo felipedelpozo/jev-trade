@@ -90,6 +90,14 @@ h1 br { display: block; }
 .controls .footnote { font-size: 11px; line-height: 1.65; color: #776b5c; margin: 21px 0; }
 .controls a { display: block; font-size: 12px; margin: 12px 0; }
 .keys { font: 10px 'Courier New',monospace; color: #8c7f6d; margin-top: 24px; }
+.audio-controls { border-top: 1px solid #d5cbbd; padding: 15px 0; font-size: 12px; }
+.audio-controls h3 { font-size: 13px; margin: 0 0 12px; font-weight: 600; }
+.audio-controls button { width: 100%; margin-bottom: 14px; }
+.audio-controls label { display: flex; justify-content: space-between; gap: 10px; margin: 8px 0; }
+.audio-controls input { width: 100%; accent-color: var(--accent); }
+#audio-status { color: var(--muted); line-height: 1.6; font-size: 11px; }
+#quick-audio { display: none; position: fixed; left: 12px; top: 12px; z-index: 5; background: #f1ede5ee; }
+.broadcast #quick-audio { display: block; }
 #leave-broadcast { display: none; position: fixed; right: 12px; top: 12px; background: #f1ede5ee; z-index: 5; opacity: 0; transition: opacity .2s; }
 body.broadcast { background: var(--paper); }
 .broadcast .workspace { padding: 0; gap: 0; min-height: 100dvh; }

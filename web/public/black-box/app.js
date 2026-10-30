@@ -1,5 +1,6 @@
 import { readSnapshot, visualState, health, isNewDecision, decisionText, intentProbability, signedMoney, remaining, chartPath, STATE_LABELS, EVALUATION_MS } from './core.js';
 import { StatePlayer } from './player.js';
+import { BlackBoxAudio } from './audio.js';
 
 const $ = id => document.getElementById(id);
 const params = new URLSearchParams(location.search);
@@ -10,9 +11,23 @@ let mediaError = '', motionAllowed = !reducedMotion.matches, renderedState = 'ob
 let stopped = false, generation = 0, lastPriceAt = 0;
 const priceFormat = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 });
 const clock = new Intl.DateTimeFormat('es-ES', { timeZone: 'UTC', hour: '2-digit', minute: '2-digit', second: '2-digit' });
+const sound = new BlackBoxAudio({ onChange({ running, enabled, loading, error }) {
+  const ready = running && !loading;
+  $('audio-toggle').textContent = loading && running ? 'Cargando sonido…' : ready ? 'Silenciar sonido' : 'Activar sonido';
+  $('audio-toggle').disabled = loading && running;
+  $('audio-toggle').setAttribute('aria-pressed', String(ready));
+  $('quick-audio').hidden = ready;
+  $('quick-audio').disabled = loading && running;
+  $('quick-audio').textContent = loading && running ? 'Cargando sonido…' : 'Activar sonido';
+  $('audio-status').textContent = error || (ready ? 'Sonido activo. Ambiente y señales de estado.'
+    : loading && running ? 'Cargando el ambiente y las señales de estado.'
+    : enabled ? 'Pulsa Activar sonido si el navegador ha bloqueado el inicio.' : 'Sonido desactivado. Actívalo antes de emitir.');
+  document.body.dataset.audioState = ready ? 'running' : error ? 'error' : enabled ? 'pending' : 'off';
+} });
 const player = new StatePlayer([$('video-a'), $('video-b')], {
   onState(state) {
     renderedState = state;
+    sound.state(state);
     $('stage').dataset.visualState = state;
     $('poster').src = `/black-box/assets/${state}.jpg`;
     for (const step of document.querySelectorAll('[data-state]')) step.classList.toggle('active', step.dataset.state === state);
@@ -162,7 +177,13 @@ async function loadHistory() {
   } catch { /* An unavailable history leaves a chart built from new observed prices. */ }
 }
 
-$('broadcast-url').value = `${location.origin}/black-box/index.html?broadcast=1`;
+$('broadcast-url').value = `${location.origin}/black-box/index.html?broadcast=1&audio=1`;
+function toggleAudio() { if (sound.running) sound.disable(); else sound.enable(); }
+$('audio-toggle').addEventListener('click', toggleAudio);
+$('quick-audio').addEventListener('click', () => sound.enable());
+for (const [id, setLevel] of [['ambient-volume', value => sound.setAmbientLevel(value)], ['effects-volume', value => sound.setEffectsLevel(value)]]) {
+  $(id).addEventListener('input', event => { const value = Number(event.target.value); setLevel(value / 100); $(`${id}-value`).value = `${value}%`; });
+}
 $('broadcast').addEventListener('click', () => setBroadcast(true));
 $('leave-broadcast').addEventListener('click', () => setBroadcast(false));
 $('guides').addEventListener('change', e => document.body.classList.toggle('show-guides', e.target.checked));
@@ -185,9 +206,11 @@ addEventListener('keydown', event => {
   if (event.key === 'Escape') setBroadcast(false);
   if (event.key.toLowerCase() === 'f') setBroadcast(!document.body.classList.contains('broadcast'));
   if (event.key.toLowerCase() === 'm') { $('motion').checked = !$('motion').checked; $('motion').dispatchEvent(new Event('change')); }
+  if (event.key.toLowerCase() === 'a') toggleAudio();
 });
 addEventListener('resize', fit);
-addEventListener('pagehide', () => { stopped = true; generation++; clearTimeout(timer); clearInterval(renderTimer); controller?.abort(); source?.close(); });
+addEventListener('pagehide', () => { stopped = true; generation++; clearTimeout(timer); clearInterval(renderTimer); controller?.abort(); source?.close(); sound.dispose(); });
 const renderTimer = setInterval(render, 250);
 if (params.get('broadcast') === '1') document.body.classList.add('broadcast');
 fit(); render(); poll(); connectPrices(); loadHistory();
+if (params.get('audio') === '1') sound.enable();

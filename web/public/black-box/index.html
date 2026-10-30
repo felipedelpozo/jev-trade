@@ -47,14 +47,25 @@
       <button id="broadcast" class="primary" type="button">Abrir modo emisión</button>
       <div class="toggles"><label><input id="motion" type="checkbox" checked> Animación de la esfera</label><label><input id="guides" type="checkbox"> Ver zonas de TikTok</label></div>
       <button id="resume" type="button" hidden>Reanudar animación</button>
+      <section class="audio-controls" aria-labelledby="audio-title">
+        <h3 id="audio-title">Sonido de Black Box</h3>
+        <button id="audio-toggle" type="button" aria-pressed="false">Activar sonido</button>
+        <label for="ambient-volume">Ambiente <output id="ambient-volume-value" for="ambient-volume">65%</output></label>
+        <input id="ambient-volume" type="range" min="0" max="100" value="65">
+        <label for="effects-volume">Cambios de estado <output id="effects-volume-value" for="effects-volume">55%</output></label>
+        <input id="effects-volume" type="range" min="0" max="100" value="55">
+        <p id="audio-status" role="status">Sonido desactivado. Actívalo antes de emitir.</p>
+        <a href="/black-box/assets/audio/LICENSE.txt" target="_blank" rel="noopener">Audio original de libre uso / CC0</a>
+      </section>
       <details><summary>Comprobar transiciones</summary><p>Solo cambia la esfera. Los datos de la cuenta permanecen en directo. El modo emisión sale de esta prueba.</p><div class="state-buttons"><button data-preview="observe" type="button">Observar</button><button data-preview="evaluate" type="button">Evaluar</button><button data-preview="wait" type="button">Esperar</button></div><button id="end-preview" type="button">Volver al estado del bot</button><p id="preview-status" role="status">Estado automático</p></details>
-      <section class="setup"><h3>Fuente de navegador en OBS</h3><p>1080 × 1920, 30 FPS. Usa la URL de emisión, sin recortar la escena.</p><label for="broadcast-url">URL de emisión</label><input id="broadcast-url" readonly><button id="copy-url" type="button">Copiar URL</button><p>Sin audio. El vídeo no necesita interacción ni genera inferencias de IA.</p></section>
+      <section class="setup"><h3>Fuente de navegador en OBS</h3><p>1080 × 1920, 30 FPS. Usa la URL de emisión, sin recortar la escena.</p><label for="broadcast-url">URL de emisión</label><input id="broadcast-url" readonly><button id="copy-url" type="button">Copiar URL</button><p>Activa «Controlar audio a través de OBS» en la fuente. La cámara virtual solo transmite vídeo: añade una fuente de audio en TikTok.</p></section>
       <p class="footnote">La esfera anima la última respuesta recibida. No representa el razonamiento interno de Jev. Las cifras incluyen costes estimados cuando falta confirmación.</p>
       <a href="/orbit/index.html">Abrir Jev Orbit</a><a href="/">Abrir panel de trading</a>
-      <p class="keys">F: emisión / Esc: controles / M: movimiento</p>
+      <p class="keys">F: emisión / Esc: controles / M: movimiento / A: sonido</p>
     </aside>
   </main>
   <button id="leave-broadcast" type="button">Salir de emisión</button>
+  <button id="quick-audio" type="button">Activar sonido</button>
   <script type="module" src="/black-box/app.js"></script>
 </body>
 </html>
